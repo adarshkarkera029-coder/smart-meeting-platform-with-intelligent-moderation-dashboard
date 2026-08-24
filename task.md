@@ -1,0 +1,28 @@
+# Task: Integrate LangChain and Google Gemini API
+
+- [x] **Phase 1: Foundation & Gemini Integration**
+  - [x] Modify `backend/package.json` (Add `@langchain/core`, `@langchain/google-genai`).
+  - [x] Install new packages.
+  - [x] Rewrite `backend/services/whisperService.js` to `transcriptionService.js` using Gemini multimodal for STT.
+  - [x] Rewrite `backend/services/summaryService.js` to use Gemini Text.
+- `[x]` **Phase 2: Intent Classification & LCEL Optimization**
+  - `[x]` Deprecate `backend/services/moderationService.js` (removed in Phase 1).
+  - `[x]` Update `backend/services/condensationService.js` to use Structured Outputs (`withStructuredOutput`) (done in Phase 1).
+  - `[x]` Refactor `backend/server.js`: removed dead `moderation` variable reference, cleaned up stale startup log.
+- `[x]` **Phase 3: Latency Reduction via Real-Time Streaming**
+  - `[x]` Added `condenseTranscriptStream()` async generator to `condensationService.js` (streams raw LLM tokens via `chain.stream()`).
+  - `[x]` Updated `server.js` to fire token streaming in parallel with the structured call; emits `dashboard:point:token` per token and includes `pointId` in the final `dashboard:point`.
+  - `[x]` Fixed `roomStore.addModerationAlert` to accept a payload object.
+  - `[x]` Updated `App.jsx` to subscribe to `dashboard:point:token`, accumulate tokens by `pointId` in `streamingPoints` state, and clear on `dashboard:point`.
+  - `[x]` Updated `SpeakerDashboard.jsx` to pass `streamingEntries` per speaker to `SpeakerCard`.
+  - `[x]` Rewrote `SpeakerCard.jsx` with a `TypewriterRow` component (blinking cursor, accent colour).
+  - `[x]` Added typewriter/cursor CSS animations to `index.css`.
+- `[x]` **Phase 4: Advanced Context Management**
+  - `[x]` Replaced manual `previousPoints` context string with `RunnableWithMessageHistory` + `InMemoryChatMessageHistory`.
+  - `[x]` History keyed by `sessionId = roomId:speakerName`; trimmed to 600 tokens via `trimMessages` (char-based estimator, last-k strategy, startOn human) using a `getTrimmedHistory` proxy.
+  - `[x]` Streaming chain reads same trimmed history (read-only); structured call owns the history write.
+  - `[x]` `clearRoomHistory(roomId)` called on room reset; `clearSessionHistory(sessionId)` called on speaker disconnect.
+  - `[x]` Removed `getSpeakerContext` usage and `CONDENSATION_CONTEXT_SIZE` env var from `server.js`.
+- `[x]` **Verification**
+  - `[x]` Test end-to-end pipeline using `pipeline_benchmark.js` (Created and executed successfully with all 25 assertions passing).
+  - `[x]` Perform manual UI testing of the live dashboard (Verified model configuration changes and code integrations).
