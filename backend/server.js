@@ -33,7 +33,11 @@ import { sendMeetingSummaryEmail, emailStatus } from "./services/emailService.js
 
 
 const PORT = process.env.PORT || 4000;
+/** How many new transcript lines before refreshing the rolling summary. */
 const SUMMARY_EVERY_N_LINES = parseInt(process.env.SUMMARY_EVERY_N_LINES || "2", 10);
+
+/** Avoid stacking summary API calls when STT is busy. */
+const summaryInFlight = new Set();
 
 /** Merge nearby STT fragments from the same speaker before condensing. */
 const utteranceBuffers = new Map();
@@ -154,8 +158,18 @@ function queueTranscriptForDashboard(io, roomId, speaker, rawText) {
 function resolveCorsOrigin() {
   const raw = process.env.CORS_ORIGIN || "http://localhost:5173,http://localhost:5174";
   const list = raw.split(",").map((s) => s.trim()).filter(Boolean);
-  if (list.length <= 1) return list[0] || "http://localhost:5173";
-  return list;
+  const allowVercelPreviews =
+    (process.env.CORS_ALLOW_VERCEL || "true").toLowerCase() !== "false";
+
+  return (origin, callback) => {
+    // Non-browser clients (health checks, curl) send no Origin header.
+    if (!origin) return callback(null, true);
+    if (list.includes(origin)) return callback(null, true);
+    if (allowVercelPreviews && /\.vercel\.app$/i.test(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  };
 }
 
 const CORS_ORIGIN = resolveCorsOrigin();
@@ -364,17 +378,52 @@ io.on("connection", (socket) => {
 
         // rolling summary every N new lines
         const room = getRoom(roomId);
-        if (room && room.summary.linesSinceLastSummary >= SUMMARY_EVERY_N_LINES) {
-          summarizeMeeting(room.transcript)
+        if (
+          room &&
+          room.summary.linesSinceLastSummary >= SUMMARY_EVERY_N_LINES &&
+          !summaryInFlight.has(roomId)
+        ) {
+          const transcriptSnapshot = room.transcript.slice();
+          const snapshotLen = transcriptSnapshot.length;
+          summaryInFlight.add(roomId);
+          console.log(
+            `[summary] room=${roomId} lines=${snapshotLen} since=${room.summary.linesSinceLastSummary}`
+          );
+          summarizeMeeting(transcriptSnapshot)
             .then((bullets) => {
+              if (!bullets.length) {
+                console.warn(`[summary] room=${roomId} empty bullets — will retry later`);
+                // Avoid locking the cadence forever if the model returns nothing.
+                const r = getRoom(roomId);
+                if (r) r.summary.linesSinceLastSummary = Math.max(0, SUMMARY_EVERY_N_LINES - 1);
+                return;
+              }
               const summary = setSummary(roomId, bullets);
+              // Keep credit for lines that arrived while this summary was in flight.
+              const r = getRoom(roomId);
+              if (r) {
+                r.summary.linesSinceLastSummary = Math.max(0, r.transcript.length - snapshotLen);
+              }
+              console.log(`[summary] room=${roomId} bullets=${bullets.length}`);
               io.to(roomId).emit("summary:update", summary);
             })
             .catch((err) => {
+              console.error(`[summary] room=${roomId} failed: ${err.message}`);
+              // Retry sooner after a failure instead of waiting for another full N lines.
+              const r = getRoom(roomId);
+              if (r) {
+                r.summary.linesSinceLastSummary = Math.max(
+                  r.summary.linesSinceLastSummary,
+                  SUMMARY_EVERY_N_LINES
+                );
+              }
               io.to(roomId).emit("pipeline:error", {
                 stage: "summary",
                 message: err.message,
               });
+            })
+            .finally(() => {
+              summaryInFlight.delete(roomId);
             });
         }
 
@@ -409,9 +458,8 @@ io.on("connection", (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Meet backend listening on http://localhost:${PORT}`);
-  console.log(`CORS origin: ${Array.isArray(CORS_ORIGIN) ? CORS_ORIGIN.join(", ") : CORS_ORIGIN}`);
+  console.log(`Meet backend listening on port ${PORT}`);
   console.log(
-    `AI pipeline: transcription=Gemini-multimodal | condensation=Gemini-text (LCEL+history+trim) | summary=Gemini-text`
+    `AI pipeline: transcription=Gemini (${process.env.GEMINI_VOICE_MODEL || "gemini-3.1-flash-lite"}) | condensation=Gemini (${process.env.GEMINI_TEXT_MODEL || "gemini-3.1-flash-lite"}) | summary=${process.env.SUMMARY_BACKEND || "gemini"}`
   );
 });

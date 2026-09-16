@@ -282,7 +282,8 @@ html[data-theme="light"] .glass-card {
 /* ------------------------------------------------------------------ */
 .lumen-screen {
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .lumen-shell {
@@ -1192,6 +1193,128 @@ html[data-theme="light"] .calendar-row {
   }
 
   .status-island {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Allow scrolling so the bottom sign-in card is reachable on phones */
+  .lumen-screen.join-screen,
+  .lumen-screen.auth-screen {
+    overflow-x: hidden;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    align-items: flex-start;
+    justify-content: flex-start;
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    /* Extra bottom space so Sign in / CTA stay above the keyboard */
+    padding:
+      calc(12px + env(safe-area-inset-top, 0px))
+      12px
+      calc(48px + env(safe-area-inset-bottom, 0px) + var(--kb-inset, 0px));
+  }
+
+  .lumen-shell {
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    gap: 20px;
+    align-items: stretch;
+    padding-top: 8px;
+    padding-bottom: max(160px, calc(80px + var(--kb-inset, 0px)));
+  }
+
+  /* Keep marketing info first; sign-in stays below and is scrollable into view */
+  .lumen-shell .lumen-visual {
+    order: 0;
+  }
+
+  .lumen-shell .lumen-panel,
+  .lumen-shell .join-card,
+  .lumen-shell .auth-card {
+    order: 1;
+    width: 100%;
+    max-width: none;
+    margin: 0 0 24px;
+    padding: 20px 16px 24px;
+    flex-shrink: 0;
+  }
+
+  .lumen-display {
+    font-size: clamp(28px, 8vw, 36px);
+    line-height: 1.05;
+  }
+
+  .lumen-lead {
+    margin-bottom: 16px;
+    font-size: 14px;
+  }
+
+  .lumen-bento {
+    gap: 8px;
+  }
+
+  .bento-card {
+    padding: 12px;
+  }
+
+  .join-card .field-input,
+  .auth-card .field-input,
+  .lumen-panel .field-input {
+    font-size: 16px; /* prevents iOS auto-zoom on focus */
+    min-height: 48px;
+    padding: 12px 14px;
+    scroll-margin-bottom: calc(140px + var(--kb-inset, 0px));
+  }
+
+  .auth-form {
+    gap: 4px;
+    padding-bottom: 8px;
+  }
+
+  .auth-form .join-btn,
+  .auth-provider-stack .auth-provider-btn,
+  .join-card .join-btn,
+  .lumen-panel .join-btn,
+  .lumen-panel .lumen-cta {
+    min-height: 48px;
+    font-size: 15px;
+    margin-top: 12px;
+    margin-bottom: 8px;
+    scroll-margin-bottom: calc(120px + var(--kb-inset, 0px));
+  }
+
+  .join-btn,
+  .auth-provider-btn,
+  .lumen-cta {
+    min-height: 48px;
+    font-size: 15px;
+  }
+
+  .auth-tabs,
+  .auth-tabs-4 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .auth-tab {
+    min-height: 40px;
+    padding: 8px 6px;
+    font-size: 13px;
+  }
+
+  .theme-fab-group {
+    position: fixed;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    right: 10px;
+    z-index: 30;
+  }
+
+  html[data-theme="light"] .theme-fab-light,
+  html[data-theme="dark"] .theme-fab-dark {
     display: none;
   }
 }

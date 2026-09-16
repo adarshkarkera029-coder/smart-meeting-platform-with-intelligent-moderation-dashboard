@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { useAuth } from "../lib/AuthContext.jsx";
 import { useTheme } from "../lib/ThemeContext.jsx";
+import { useMobileFormScroll } from "../hooks/useMobileFormScroll.js";
 import BrandMark from "./BrandMark.jsx";
 
 function SunIcon() {
@@ -65,6 +66,8 @@ export default function AuthScreen({ onAuthenticated }) {
     setAuthError,
   } = useAuth();
   const { theme, setTheme } = useTheme();
+  const screenRef = useRef(null);
+  useMobileFormScroll(screenRef);
   const [mode, setMode] = useState("email"); // email | social | phone | guest
   const [emailMode, setEmailMode] = useState("signin"); // signin | signup
   const [email, setEmail] = useState("");
@@ -132,7 +135,7 @@ export default function AuthScreen({ onAuthenticated }) {
   };
 
   return (
-    <div className="auth-screen lumen-screen">
+    <div className="auth-screen lumen-screen" ref={screenRef}>
       <div className="theme-fab-group" role="group" aria-label="Theme">
         <button
           type="button"

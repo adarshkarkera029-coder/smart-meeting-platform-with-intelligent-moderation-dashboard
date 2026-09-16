@@ -13,6 +13,8 @@ const STT_TIMEOUT_MS = parseInt(process.env.STT_TIMEOUT_MS || "20000", 10);
 
 /** Keep in sync with client MIN_BLOB_BYTES (slightly lower to avoid silent drops). */
 const MIN_AUDIO_BYTES = 2500;
+/** Gemini rejects empty/corrupt inline audio with a generic 400. */
+const MIN_WAV_BYTES = 8000;
 
 let sttQueue = Promise.resolve();
 
@@ -26,7 +28,6 @@ export function isNoiseTranscript(text) {
 
   const lower = cleaned.toLowerCase().replace(/\s+/g, " ");
 
-  // Bracketed / parenthetical model notes
   if (/^\s*[\[(].*[\])]\s*$/i.test(cleaned)) return true;
   if (/^(no speech|no audible|blank audio|empty audio|nothing to transcribe|no_speech)/i.test(lower)) {
     return true;
@@ -60,10 +61,7 @@ export function isNoiseTranscript(text) {
   ]);
   if (NOISE_EXACT.has(lower)) return true;
 
-  // Punctuation / filler only
   if (/^[\s.,…\-–—_*#~!?]+$/.test(cleaned)) return true;
-
-  // Pure filler (keep short real words like yes/no/ok)
   if (/^(uh+|um+|ah+|hmm+|mm+)\.?$/i.test(cleaned)) return true;
 
   const words = cleaned.split(/\s+/).filter(Boolean);
@@ -94,6 +92,21 @@ function runFfmpeg(args) {
   });
 }
 
+function isValidWav(buf) {
+  if (!buf || buf.length < MIN_WAV_BYTES) return false;
+  // RIFF....WAVE
+  return (
+    buf[0] === 0x52 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x46 &&
+    buf[8] === 0x57 &&
+    buf[9] === 0x41 &&
+    buf[10] === 0x56 &&
+    buf[11] === 0x45
+  );
+}
+
 async function toWav(audioBuffer, sourceExt = ".webm") {
   const id = randomUUID();
   const inPath = join(tmpdir(), `meet-stt-${id}${sourceExt}`);
@@ -112,7 +125,11 @@ async function toWav(audioBuffer, sourceExt = ".webm") {
       "pcm_s16le",
       outPath,
     ]);
-    return await readFile(outPath);
+    const wav = await readFile(outPath);
+    if (!isValidWav(wav)) {
+      throw new Error(`wav too small or invalid (${wav?.length || 0} bytes)`);
+    }
+    return wav;
   } finally {
     await unlink(inPath).catch(() => {});
     await unlink(outPath).catch(() => {});
@@ -125,6 +142,11 @@ function extForMime(mime) {
   if (mime.includes("ogg")) return ".ogg";
   if (mime.includes("mp4") || mime.includes("m4a")) return ".m4a";
   return ".webm";
+}
+
+function isInvalidArgumentError(err) {
+  const msg = err?.message || String(err);
+  return /invalid argument|invalid value|base64 decoding|400 Bad Request/i.test(msg);
 }
 
 async function invokeWithTimeout(model, messages, ms) {
@@ -150,17 +172,29 @@ async function transcribeOnce(audioBuffer, mimeType = "audio/webm") {
   }
 
   const sourceMime = normalizeMime(mimeType);
-  let payload = audioBuffer;
-  let sendMime = sourceMime;
+  let payload = null;
+  let sendMime = "audio/wav";
 
-  // Gemini is unreliable with browser webm/opus; convert to 16 kHz WAV.
-  if (!sourceMime.includes("wav")) {
-    try {
-      payload = await toWav(audioBuffer, extForMime(sourceMime));
-      sendMime = "audio/wav";
-    } catch (err) {
-      console.warn(`[stt] wav convert failed, sending ${sourceMime}: ${err.message}`);
-    }
+  // Always convert browser recordings to clean 16 kHz mono WAV.
+  // Sending raw webm/opus (or mime with codecs=...) often yields Gemini 400.
+  try {
+    payload = sourceMime.includes("wav") && isValidWav(audioBuffer)
+      ? audioBuffer
+      : await toWav(audioBuffer, extForMime(sourceMime));
+  } catch (err) {
+    console.warn(`[stt] skip utterance — cannot build valid wav: ${err.message}`);
+    return "";
+  }
+
+  if (!payload || payload.length < MIN_WAV_BYTES) {
+    console.warn(`[stt] skip utterance — wav too small (${payload?.length || 0})`);
+    return "";
+  }
+
+  const b64 = payload.toString("base64");
+  if (!b64 || b64.length < 64) {
+    console.warn("[stt] skip utterance — empty base64 payload");
+    return "";
   }
 
   const model = new ChatGoogleGenerativeAI({
@@ -187,19 +221,28 @@ Rules:
       {
         type: "media",
         mimeType: sendMime,
-        data: payload.toString("base64"),
+        data: b64,
       },
     ],
   });
 
-  const response = await invokeWithTimeout(model, [message], STT_TIMEOUT_MS);
-  let text = (response.content || "").trim();
+  try {
+    const response = await invokeWithTimeout(model, [message], STT_TIMEOUT_MS);
+    let text = (response.content || "").trim();
 
-  if (/^NO_SPEECH$/i.test(text)) return "";
-  text = text.replace(/^(transcript\s*:|transcription\s*:)\s*/i, "").trim();
+    if (/^NO_SPEECH$/i.test(text)) return "";
+    text = text.replace(/^(transcript\s*:|transcription\s*:)\s*/i, "").trim();
 
-  if (isNoiseTranscript(text)) return "";
-  return text;
+    if (isNoiseTranscript(text)) return "";
+    return text;
+  } catch (err) {
+    // Bad/short clips must not surface as pipeline errors in the UI.
+    if (isInvalidArgumentError(err)) {
+      console.warn(`[stt] gemini rejected audio (treated as empty): ${err.message}`);
+      return "";
+    }
+    throw err;
+  }
 }
 
 export async function transcribeAudio(audioBuffer, mimeType = "audio/webm") {

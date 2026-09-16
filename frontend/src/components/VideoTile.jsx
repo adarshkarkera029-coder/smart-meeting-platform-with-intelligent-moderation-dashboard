@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import Waveform from "./Waveform.jsx";
+import GestureOverlay from "./GestureOverlay.jsx";
 
 function initials(name = "") {
   return name
@@ -20,6 +21,9 @@ export default function VideoTile({
   micOn = true,
   camOn = true,
   variant = "tile",
+  /** Callback so parent can attach MediaPipe to the same <video> element */
+  onVideoRef = null,
+  gestureOverlayProps = null,
 }) {
   const videoRef = useRef(null);
 
@@ -27,6 +31,12 @@ export default function VideoTile({
     !!stream &&
     stream.getVideoTracks().some((t) => t.enabled && t.readyState !== "ended");
   const hasVideo = isLocal ? camOn && trackEnabled : trackEnabled;
+
+  useEffect(() => {
+    if (!isLocal || !onVideoRef) return;
+    onVideoRef(videoRef.current);
+    return () => onVideoRef(null);
+  }, [isLocal, onVideoRef]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -72,12 +82,17 @@ export default function VideoTile({
         autoPlay
         playsInline
         muted={muted || isLocal}
+        className={isLocal ? "is-local-preview" : undefined}
         style={{ display: hasVideo ? "block" : "none" }}
       />
       {!hasVideo && (
         <div className="avatar-fallback">
           <span>{initials(name)}</span>
         </div>
+      )}
+
+      {isLocal && gestureOverlayProps && hasVideo && (
+        <GestureOverlay {...gestureOverlayProps} />
       )}
 
       <div className={isSpotlight ? "tile-name-overlay" : "tile-footer"}>

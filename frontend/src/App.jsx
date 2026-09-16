@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useSocket } from "./hooks/useSocket.js";
 import { useWebRTC } from "./hooks/useWebRTC.js";
 import { useAudioPipeline } from "./hooks/useAudioPipeline.js";
@@ -17,6 +17,9 @@ import AuthScreen from "./components/AuthScreen.jsx";
 import FluidCursor from "./components/FluidCursor.jsx";
 import AuroraBackdrop from "./components/AuroraBackdrop.jsx";
 import BrandMark from "./components/BrandMark.jsx";
+import GestureControls from "./components/GestureControls.jsx";
+import { useGestureRecognition } from "./gestures/useGestureRecognition.js";
+import { useMobileFormScroll } from "./hooks/useMobileFormScroll.js";
 
 function getRoomFromUrl() {
   const params = new URLSearchParams(window.location.search);
@@ -93,11 +96,13 @@ function timeGreeting() {
 function JoinScreen({ roomId, setRoomId, name, setName, onJoin }) {
   const { user, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
+  const screenRef = useRef(null);
+  useMobileFormScroll(screenRef);
   const canJoin = roomId.trim().length > 0 && name.trim().length > 0;
   const hasRoomFromUrl = !!new URLSearchParams(window.location.search).get("room");
 
   return (
-    <div className="join-screen lumen-screen">
+    <div className="join-screen lumen-screen" ref={screenRef}>
       <div className="theme-fab-group" role="group" aria-label="Theme">
         <button
           type="button"
@@ -256,41 +261,41 @@ function MeetingClock() {
 /* ── Sidebar Icons (SVG) ────────────────────────────────────────── */
 const SidebarIcons = {
   logo: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
       <path d="M13 3L4 14h7l-2 7 9-11h-7l2-7z" fill="currentColor" />
     </svg>
   ),
   chat: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
       <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
     </svg>
   ),
   video: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
       <rect x="2" y="6" width="13" height="12" rx="2" stroke="currentColor" strokeWidth="1.8" />
       <path d="M15 10l5-3v10l-5-3" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
     </svg>
   ),
   calendar: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
       <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.8" />
       <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   ),
   mail: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
       <rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
       <path d="M22 7l-10 7L2 7" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
     </svg>
   ),
   sun: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
       <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
       <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   ),
   moon: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
       <path d="M21 14.5A8.5 8.5 0 1110.5 3 7 7 0 0021 14.5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
     </svg>
   ),
@@ -299,12 +304,12 @@ const SidebarIcons = {
 /* ── Header Icons (SVG) ─────────────────────────────────────────── */
 const HeaderIcons = {
   back: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
       <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
   grid: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
       <rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
       <rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
       <rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
@@ -312,19 +317,19 @@ const HeaderIcons = {
     </svg>
   ),
   layout: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
       <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.6" />
       <path d="M3 9h18M9 9v12" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   ),
   bell: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
       <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9z" stroke="currentColor" strokeWidth="1.8" />
       <path d="M13.73 21a2 2 0 01-3.46 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   ),
   link: (
-    <svg viewBox="0 0 24 24" fill="none">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
       <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
@@ -345,6 +350,16 @@ function Meeting({ roomId, name, onLeave }) {
   const [camOn, setCamOn] = useState(true);
   const [micStatus, setMicStatus] = useState("requesting");
   const [listening, setListening] = useState(true);
+
+  // AI Gesture Detection (client-side MediaPipe — does not alter WebRTC media path)
+  const [gesturePanelOpen, setGesturePanelOpen] = useState(false);
+  const [gestureEnabled, setGestureEnabled] = useState(false);
+  const [safetyEnabled, setSafetyEnabled] = useState(true);
+  const [gestureDebug, setGestureDebug] = useState(false);
+  const localVideoRef = useRef(null);
+  const setLocalVideoEl = useCallback((el) => {
+    localVideoRef.current = el;
+  }, []);
 
   const [speakerPoints, setSpeakerPoints] = useState({});
   const [summary, setSummary] = useState({ bullets: [], updatedAt: null });
@@ -407,6 +422,16 @@ function Meeting({ roomId, name, onLeave }) {
     name,
     stream: localStream,
     listening,
+  });
+
+  const gesture = useGestureRecognition({
+    videoRef: localVideoRef,
+    stream: localStream,
+    camOn,
+    setCamOn,
+    gestureEnabled,
+    safetyEnabled,
+    debugMode: gestureDebug,
   });
 
   useEffect(() => {
@@ -651,6 +676,36 @@ function Meeting({ roomId, name, onLeave }) {
               camOn={camOn}
               participants={participants}
               layoutMode={layoutMode}
+              onLocalVideoRef={setLocalVideoEl}
+              gestureOverlayProps={
+                gestureEnabled
+                  ? {
+                      visible: true,
+                      gestureLabel: gesture.gestureLabel,
+                      confidence: gesture.confidence,
+                      holdProgress: safetyEnabled ? gesture.holdProgress : 0,
+                      debugMode: gestureDebug,
+                      debugInfo: gesture.debugInfo,
+                    }
+                  : null
+              }
+            />
+            <GestureControls
+              open={gesturePanelOpen}
+              onToggleOpen={() => setGesturePanelOpen((v) => !v)}
+              gestureEnabled={gestureEnabled}
+              onToggleGesture={setGestureEnabled}
+              safetyEnabled={safetyEnabled}
+              onToggleSafety={setSafetyEnabled}
+              debugMode={gestureDebug}
+              onToggleDebug={setGestureDebug}
+              gestureLabel={gesture.gestureLabel}
+              confidence={gesture.confidence}
+              status={gesture.status}
+              statusMessage={gesture.statusMessage}
+              safetyNotice={gesture.safetyNotice}
+              onReenableCamera={gesture.reenableCamera}
+              onDismissNotice={gesture.clearSafetyNotice}
             />
           </div>
 

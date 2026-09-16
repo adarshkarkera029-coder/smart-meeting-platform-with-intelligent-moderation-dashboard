@@ -10,6 +10,8 @@ export default function VideoGrid({
   camOn = true,
   participants,
   layoutMode = "grid",
+  onLocalVideoRef = null,
+  gestureOverlayProps = null,
 }) {
   const remoteEntries = Object.entries(participants);
 
@@ -62,6 +64,8 @@ export default function VideoGrid({
             micOn={micOn}
             camOn={camOn}
             variant="spotlight"
+            onVideoRef={onLocalVideoRef}
+            gestureOverlayProps={gestureOverlayProps}
           />
         </div>
 
@@ -113,6 +117,8 @@ export default function VideoGrid({
           micOn={p.micOn}
           camOn={p.camOn}
           variant="spotlight"
+          onVideoRef={p.isLocal ? onLocalVideoRef : null}
+          gestureOverlayProps={p.isLocal ? gestureOverlayProps : null}
         />
       ))}
     </div>

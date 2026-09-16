@@ -46,15 +46,24 @@ export function AuthProvider({ children }) {
       setLoading(false);
       return undefined;
     }
-    const unsub = onAuthStateChanged(auth, (user) => {
+    let settled = false;
+    const finish = (user) => {
+      if (settled) return;
+      settled = true;
       setFirebaseUser(user);
       if (user) {
         setGuestUser(null);
         writeGuest(null);
       }
       setLoading(false);
-    });
-    return unsub;
+    };
+    const unsub = onAuthStateChanged(auth, (user) => finish(user));
+    // Don't leave the boot screen hanging if Firebase is slow/blocked.
+    const timeout = setTimeout(() => finish(auth.currentUser || null), 8000);
+    return () => {
+      clearTimeout(timeout);
+      unsub();
+    };
   }, []);
 
   const user = useMemo(() => {

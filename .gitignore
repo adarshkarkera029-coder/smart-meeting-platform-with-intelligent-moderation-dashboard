@@ -4,3 +4,6 @@ dist/
 *.log
 __pycache__/
 *.pyc
+deploy-tools/
+backend/python/logs/
+backend/python/venv/

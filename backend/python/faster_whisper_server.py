@@ -64,4 +64,13 @@ def transcribe():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=9000)
+    # Detach from controlling terminal when possible so parent exits don't
+    # interrupt the model server (esp. under nodemon / npm scripts).
+    try:
+        import os
+
+        if hasattr(os, "setpgrp"):
+            os.setpgrp()
+    except Exception:
+        pass
+    app.run(host="0.0.0.0", port=9000, threaded=True)
