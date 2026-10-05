@@ -1,38 +1,64 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import { resolveBackendUrl } from "../lib/backendUrl.js";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+let sharedSocket = null;
+
+function createSocket() {
+  const url = resolveBackendUrl();
+  return io(url, {
+    path: "/socket.io",
+    // Polling first, then upgrade — survives proxies that break raw WS.
+    transports: ["polling", "websocket"],
+    upgrade: true,
+    // Firebase auth is header/token based; cookies on XHR polling cause
+    // CORS connect_error loops that look like "reconnecting forever".
+    withCredentials: false,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 4000,
+    timeout: 20000,
+    autoConnect: true,
+  });
+}
+
+function getSocket() {
+  if (!sharedSocket) sharedSocket = createSocket();
+  return sharedSocket;
+}
 
 export function useSocket() {
   const socketRef = useRef(null);
-  const [connected, setConnected] = useState(false);
+  if (!socketRef.current) socketRef.current = getSocket();
+
+  const [connected, setConnected] = useState(() => Boolean(socketRef.current?.connected));
 
   useEffect(() => {
-    const socket = io(BACKEND_URL, {
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 800,
-      reconnectionDelayMax: 5000,
-      timeout: 10000,
-    });
+    const socket = getSocket();
     socketRef.current = socket;
 
-    const markConnected = () => setConnected(true);
-    const markDisconnected = () => setConnected(false);
+    const sync = () => setConnected(Boolean(socket.connected));
 
-    socket.on("connect", markConnected);
-    socket.on("disconnect", markDisconnected);
-    socket.on("connect_error", markDisconnected);
+    const onError = (err) => {
+      console.warn("[socket] connect_error", err?.message || err);
+      // Upgrade failures must not flip the UI if polling is still alive.
+      sync();
+    };
 
-    if (socket.connected) markConnected();
+    socket.on("connect", sync);
+    socket.on("disconnect", sync);
+    socket.io.on("reconnect", sync);
+    socket.on("connect_error", onError);
+
+    if (!socket.connected) socket.connect();
+    sync();
 
     return () => {
-      socket.off("connect", markConnected);
-      socket.off("disconnect", markDisconnected);
-      socket.off("connect_error", markDisconnected);
-      socket.disconnect();
-      socketRef.current = null;
+      socket.off("connect", sync);
+      socket.off("disconnect", sync);
+      socket.off("connect_error", onError);
+      socket.io.off("reconnect", sync);
     };
   }, []);
 

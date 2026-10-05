@@ -1,22 +1,45 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-
-const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+import { getIceServers } from "../lib/iceServers.js";
+import { normalizeRoomId } from "../lib/roomId.js";
 
 /**
  * Manages WebRTC peer connections for a mesh video call, using the given
  * socket for signaling. Returns remote participant state keyed by socketId.
  */
-export function useWebRTC({ socket, roomId, name, localStream }) {
+export function useWebRTC({ socket, roomId, name, localStream, ready = true }) {
   const [participants, setParticipants] = useState({}); // socketId -> { name, stream, speaking }
   const peersRef = useRef({}); // socketId -> RTCPeerConnection
+  const pendingIceRef = useRef({}); // peerId -> RTCIceCandidateInit[]
+  const localStreamRef = useRef(localStream);
+  localStreamRef.current = localStream;
+
+  const flushIce = useCallback(async (peerId) => {
+    const pc = peersRef.current[peerId];
+    const queued = pendingIceRef.current[peerId] || [];
+    if (!pc || !pc.remoteDescription || !queued.length) return;
+    pendingIceRef.current[peerId] = [];
+    for (const candidate of queued) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn("Failed to add queued ICE candidate", err);
+      }
+    }
+  }, []);
 
   const createPeerConnection = useCallback(
     (peerId, peerName) => {
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      if (peersRef.current[peerId]) return peersRef.current[peerId];
+
+      const pc = new RTCPeerConnection({
+        iceServers: getIceServers(),
+        iceCandidatePoolSize: 10,
+      });
       peersRef.current[peerId] = pc;
 
-      if (localStream) {
-        localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+      const stream = localStreamRef.current;
+      if (stream) {
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       }
 
       pc.onicecandidate = (event) => {
@@ -39,8 +62,12 @@ export function useWebRTC({ socket, roomId, name, localStream }) {
       };
 
       pc.onconnectionstatechange = () => {
-        if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
-          // leave cleanup to participant:left handler
+        if (pc.connectionState === "failed") {
+          try {
+            pc.restartIce();
+          } catch {
+            /* ignore */
+          }
         }
       };
 
@@ -51,27 +78,50 @@ export function useWebRTC({ socket, roomId, name, localStream }) {
 
       return pc;
     },
-    [localStream, socket]
+    [socket]
   );
 
   useEffect(() => {
-    if (!socket.current || !roomId || !localStream) return;
+    const stream = localStream;
+    if (!stream) return;
+    Object.values(peersRef.current).forEach((pc) => {
+      const senders = pc.getSenders();
+      stream.getTracks().forEach((track) => {
+        const sender = senders.find((s) => s.track && s.track.kind === track.kind);
+        if (sender) {
+          sender.replaceTrack(track).catch(() => {});
+        } else {
+          pc.addTrack(track, stream);
+        }
+      });
+    });
+  }, [localStream]);
+
+  useEffect(() => {
     const s = socket.current;
+    const id = normalizeRoomId(roomId);
+    if (!s || !id || !ready) return;
 
     const joinRoom = () => {
-      s.emit("room:join", { roomId, name });
+      if (!s.connected) return;
+      s.emit("room:join", { roomId: id, name });
     };
 
     joinRoom();
     s.on("connect", joinRoom);
+    s.io.on("reconnect", joinRoom);
 
     s.on("room:existing-participants", async (others) => {
       for (const other of others) {
         if (peersRef.current[other.socketId]) continue;
         const pc = createPeerConnection(other.socketId, other.name);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        s.emit("signal:offer", { to: other.socketId, offer });
+        try {
+          const offer = await pc.createOffer({ iceRestart: true });
+          await pc.setLocalDescription(offer);
+          s.emit("signal:offer", { to: other.socketId, offer });
+        } catch (err) {
+          console.warn("Failed to create offer", err);
+        }
       }
     });
 
@@ -83,26 +133,41 @@ export function useWebRTC({ socket, roomId, name, localStream }) {
     });
 
     s.on("signal:offer", async ({ from, offer }) => {
-      const pc = createPeerConnection(from, participants[from]?.name || "Guest");
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      s.emit("signal:answer", { to: from, answer });
+      try {
+        const pc = createPeerConnection(from, participants[from]?.name || "Guest");
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await flushIce(from);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        s.emit("signal:answer", { to: from, answer });
+      } catch (err) {
+        console.warn("Failed to handle offer", err);
+      }
     });
 
     s.on("signal:answer", async ({ from, answer }) => {
       const pc = peersRef.current[from];
-      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      if (!pc) return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        await flushIce(from);
+      } catch (err) {
+        console.warn("Failed to apply answer", err);
+      }
     });
 
     s.on("signal:ice-candidate", async ({ from, candidate }) => {
+      if (!candidate) return;
       const pc = peersRef.current[from];
-      if (pc) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.warn("Failed to add ICE candidate", err);
-        }
+      if (!pc || !pc.remoteDescription) {
+        pendingIceRef.current[from] = pendingIceRef.current[from] || [];
+        pendingIceRef.current[from].push(candidate);
+        return;
+      }
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn("Failed to add ICE candidate", err);
       }
     });
 
@@ -112,6 +177,7 @@ export function useWebRTC({ socket, roomId, name, localStream }) {
         pc.close();
         delete peersRef.current[socketId];
       }
+      delete pendingIceRef.current[socketId];
       setParticipants((prev) => {
         const next = { ...prev };
         delete next[socketId];
@@ -133,6 +199,7 @@ export function useWebRTC({ socket, roomId, name, localStream }) {
 
     return () => {
       s.off("connect", joinRoom);
+      s.io.off("reconnect", joinRoom);
       s.off("room:existing-participants");
       s.off("participant:joined");
       s.off("signal:offer");
@@ -143,9 +210,10 @@ export function useWebRTC({ socket, roomId, name, localStream }) {
       s.off("speaking:stop");
       Object.values(peersRef.current).forEach((pc) => pc.close());
       peersRef.current = {};
+      pendingIceRef.current = {};
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, roomId, localStream, name, createPeerConnection]);
+  }, [socket, roomId, name, ready, createPeerConnection, flushIce]);
 
   return { participants };
 }

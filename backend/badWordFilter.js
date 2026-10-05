@@ -48,7 +48,14 @@ export const badWordsList = [
     { word: 'cocksucker', severity: 'high' },
     { word: 'niggers', severity: 'high' },
     { word: 'cunts', severity: 'high' },
-    { word: 'assholes', severity: 'high' }
+    { word: 'assholes', severity: 'high' },
+    { word: 'bvc', severity: 'high' },
+    { word: 'bajil', severity: 'low'},
+    { word: 'potu', severity: 'high' },
+    { word: 'saman', severity: 'high' },
+    { word: 'rande', severity: 'high' },
+    { word: 'bolimaga', severity: 'high' }
+
 ];
 
 function normalizeText(text) {

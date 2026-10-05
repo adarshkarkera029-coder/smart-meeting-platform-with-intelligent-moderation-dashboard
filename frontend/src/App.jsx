@@ -20,10 +20,20 @@ import BrandMark from "./components/BrandMark.jsx";
 import GestureControls from "./components/GestureControls.jsx";
 import { useGestureRecognition } from "./gestures/useGestureRecognition.js";
 import { useMobileFormScroll } from "./hooks/useMobileFormScroll.js";
+import { normalizeRoomId } from "./lib/roomId.js";
 
 function getRoomFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  return params.get("room") || "";
+  return normalizeRoomId(params.get("room") || "");
+}
+
+function persistRoomInUrl(id) {
+  const next = normalizeRoomId(id);
+  if (!next) return "";
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", next);
+  window.history.replaceState({}, "", url);
+  return next;
 }
 
 export default function App() {
@@ -54,7 +64,12 @@ export default function App() {
         setRoomId={setRoomId}
         name={name}
         setName={setName}
-        onJoin={() => setJoined(true)}
+        onJoin={() => {
+          const id = persistRoomInUrl(roomId);
+          if (!id) return;
+          setRoomId(id);
+          setJoined(true);
+        }}
       />
     );
   } else {
@@ -98,7 +113,7 @@ function JoinScreen({ roomId, setRoomId, name, setName, onJoin }) {
   const { theme, setTheme } = useTheme();
   const screenRef = useRef(null);
   useMobileFormScroll(screenRef);
-  const canJoin = roomId.trim().length > 0 && name.trim().length > 0;
+  const canJoin = normalizeRoomId(roomId).length > 0 && name.trim().length > 0;
   const hasRoomFromUrl = !!new URLSearchParams(window.location.search).get("room");
 
   return (
@@ -185,7 +200,7 @@ function JoinScreen({ roomId, setRoomId, name, setName, onJoin }) {
 
         <h1 className="join-title">{hasRoomFromUrl ? "Join this room" : "Start or join"}</h1>
         <p className="join-sub">
-          Name the room, or generate a fresh code and invite people in.
+          Hosts and guests land in the same call when they use the same classroom code.
         </p>
 
         {hasRoomFromUrl && (
@@ -208,6 +223,9 @@ function JoinScreen({ roomId, setRoomId, name, setName, onJoin }) {
             placeholder="e.g. lumen-studio-42"
             value={roomId}
             onChange={(e) => setRoomId(e.target.value)}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
           />
           {!hasRoomFromUrl && (
             <button
@@ -222,7 +240,7 @@ function JoinScreen({ roomId, setRoomId, name, setName, onJoin }) {
 
         {!hasRoomFromUrl && (
           <p className="join-code-hint">
-            Ask the host for the room code, or mint one and share the invite.
+            Share this exact code with your friend. Guest login works — they just need the same room id.
           </p>
         )}
 
@@ -351,9 +369,9 @@ function Meeting({ roomId, name, onLeave }) {
   const [micStatus, setMicStatus] = useState("requesting");
   const [listening, setListening] = useState(true);
 
-  // AI Gesture Detection (client-side MediaPipe — does not alter WebRTC media path)
+  // Detection + safety on by default; debug stays off (landmarks are expensive)
   const [gesturePanelOpen, setGesturePanelOpen] = useState(false);
-  const [gestureEnabled, setGestureEnabled] = useState(false);
+  const [gestureEnabled, setGestureEnabled] = useState(true);
   const [safetyEnabled, setSafetyEnabled] = useState(true);
   const [gestureDebug, setGestureDebug] = useState(false);
   const localVideoRef = useRef(null);
@@ -410,11 +428,24 @@ function Meeting({ roomId, name, onLeave }) {
 
   useEffect(() => {
     return () => {
+      socket.current?.emit("room:leave");
+    };
+  }, [socket]);
+
+  useEffect(() => {
+    return () => {
       localStream?.getTracks().forEach((t) => t.stop());
     };
   }, [localStream]);
 
-  const { participants } = useWebRTC({ socket, roomId, name, localStream });
+  const mediaReady = Boolean(localStream) || micStatus === "error";
+  const { participants } = useWebRTC({
+    socket,
+    roomId,
+    name,
+    localStream,
+    ready: mediaReady,
+  });
 
   const { isSpeaking, level, pipelineError } = useAudioPipeline({
     socket,
@@ -527,7 +558,7 @@ function Meeting({ roomId, name, onLeave }) {
       setTimeout(() => setBlockedMessage(null), 4000);
       return false;
     }
-    socket.current.emit("chat:send", { roomId, text: text.trim() });
+    socket.current.emit("chat:send", { roomId: normalizeRoomId(roomId), text: text.trim() });
     return true;
   };
 
@@ -678,14 +709,14 @@ function Meeting({ roomId, name, onLeave }) {
               layoutMode={layoutMode}
               onLocalVideoRef={setLocalVideoEl}
               gestureOverlayProps={
-                gestureEnabled
+                gestureEnabled && gesture.status === "ready"
                   ? {
                       visible: true,
                       gestureLabel: gesture.gestureLabel,
                       confidence: gesture.confidence,
                       holdProgress: safetyEnabled ? gesture.holdProgress : 0,
                       debugMode: gestureDebug,
-                      debugInfo: gesture.debugInfo,
+                      debugInfoRef: gesture.debugInfoRef,
                     }
                   : null
               }

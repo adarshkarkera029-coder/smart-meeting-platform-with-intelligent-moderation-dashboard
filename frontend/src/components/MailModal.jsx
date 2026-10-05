@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+import { apiUrl } from "../lib/backendUrl.js";
 
 export default function MailModal({ roomId, summary, sentBy, defaultEmail = "", onClose }) {
   const overlayRef = useRef(null);
@@ -19,7 +18,7 @@ export default function MailModal({ roomId, summary, sentBy, defaultEmail = "", 
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${BACKEND_URL}/api/email/status`)
+    fetch(apiUrl("/api/email/status"))
       .then((r) => r.json())
       .then((data) => {
         if (!cancelled) setEmailReady(!!data.configured);
@@ -42,7 +41,7 @@ export default function MailModal({ roomId, summary, sentBy, defaultEmail = "", 
     setStatus("sending");
     setError("");
     try {
-      const res = await fetch(`${BACKEND_URL}/api/rooms/${encodeURIComponent(roomId)}/email-summary`, {
+      const res = await fetch(apiUrl(`/api/rooms/${encodeURIComponent(roomId)}/email-summary`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: email.trim(), sentBy }),

@@ -28,17 +28,25 @@ export const RESTRICTED_CONFIRM_FRAMES = 1;
 export const SAFETY_COOLDOWN_MS = 5000;
 
 /**
- * Detection cadence. Lower = faster restricted response.
- * ~25ms ≈ 40 Hz for near-instant safety reaction.
+ * Wait until the local camera preview is actually playing, then wait this
+ * long before loading MediaPipe so getUserMedia / WebRTC can settle first.
  */
-export const DETECTION_INTERVAL_MS = 25;
-
-/** Max hands analyzed; we always pick the highest-score hand as primary. */
-export const MAX_HANDS = 2;
+export const CAMERA_SETTLE_MS = 1200;
 
 /**
- * Set true (or toggle in UI) to show landmarks diagnostics.
- * Easy to leave off for production.
+ * Detection cadence after the camera is live. Keep this modest so the
+ * meeting UI and camera preview stay smooth.
+ */
+export const DETECTION_INTERVAL_MS = 250;
+
+/** How often the badge/confidence may re-render React. */
+export const UI_UPDATE_INTERVAL_MS = 400;
+
+/** Max hands analyzed; primary hand is enough for classification + safety. */
+export const MAX_HANDS = 1;
+
+/**
+ * Landmarks overlay is expensive — keep off unless the user turns Debug on.
  */
 export const DEFAULT_DEBUG_MODE = false;
 

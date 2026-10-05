@@ -18,6 +18,7 @@ import {
   getRoom,
   addChatMessage,
   getChatHistory,
+  normalizeRoomId,
 } from "./roomStore.js";
 
 import { containsBadWord } from "./badWordFilter.js";
@@ -34,10 +35,11 @@ import { sendMeetingSummaryEmail, emailStatus } from "./services/emailService.js
 
 const PORT = process.env.PORT || 4000;
 /** How many new transcript lines before refreshing the rolling summary. */
-const SUMMARY_EVERY_N_LINES = parseInt(process.env.SUMMARY_EVERY_N_LINES || "2", 10);
+const SUMMARY_EVERY_N_LINES = parseInt(process.env.SUMMARY_EVERY_N_LINES || "1", 10);
 
 /** Avoid stacking summary API calls when STT is busy. */
 const summaryInFlight = new Set();
+const socketNames = new Map();
 
 /** Merge nearby STT fragments from the same speaker before condensing. */
 const utteranceBuffers = new Map();
@@ -155,19 +157,47 @@ function queueTranscriptForDashboard(io, roomId, speaker, rawText) {
   }, waitMs);
 }
 
+function toNodeBuffer(audio) {
+  if (!audio) return Buffer.alloc(0);
+  if (Buffer.isBuffer(audio)) return audio;
+  if (audio instanceof ArrayBuffer) return Buffer.from(audio);
+  if (ArrayBuffer.isView(audio)) {
+    return Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength);
+  }
+  if (typeof audio === "string") return Buffer.from(audio, "base64");
+  if (audio.type === "Buffer" && Array.isArray(audio.data)) return Buffer.from(audio.data);
+  if (Array.isArray(audio)) return Buffer.from(audio);
+  return Buffer.from(audio);
+}
+
 function resolveCorsOrigin() {
   const raw = process.env.CORS_ORIGIN || "http://localhost:5173,http://localhost:5174";
   const list = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  const allowAll =
+    list.includes("*") || (process.env.CORS_ALLOW_ALL || "").toLowerCase() === "true";
+  const allowHttps = (process.env.CORS_ALLOW_HTTPS || "true").toLowerCase() !== "false";
   const allowVercelPreviews =
     (process.env.CORS_ALLOW_VERCEL || "true").toLowerCase() !== "false";
 
   return (origin, callback) => {
     // Non-browser clients (health checks, curl) send no Origin header.
     if (!origin) return callback(null, true);
-    if (list.includes(origin)) return callback(null, true);
+    if (allowAll || list.includes(origin)) return callback(null, true);
     if (allowVercelPreviews && /\.vercel\.app$/i.test(origin)) {
       return callback(null, true);
     }
+    if (/\.railway\.app$/i.test(origin)) return callback(null, true);
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+      return callback(null, true);
+    }
+    if (
+      /^https?:\/\/(?:10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/i.test(
+        origin
+      )
+    ) {
+      return callback(null, true);
+    }
+    if (allowHttps && /^https:\/\//i.test(origin)) return callback(null, true);
     return callback(new Error(`CORS blocked for origin: ${origin}`));
   };
 }
@@ -182,7 +212,78 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: CORS_ORIGIN, methods: ["GET", "POST"], credentials: true },
   maxHttpBufferSize: 5 * 1024 * 1024, // allow audio blobs up to 5MB
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  transports: ["polling", "websocket"],
+  allowEIO3: true,
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000,
+    skipMiddlewares: true,
+  },
 });
+
+function maybeRefreshSummary(io, roomId) {
+  const id = normalizeRoomId(roomId);
+  const room = getRoom(id);
+  if (
+    !room ||
+    room.summary.linesSinceLastSummary < SUMMARY_EVERY_N_LINES ||
+    summaryInFlight.has(id)
+  ) {
+    return;
+  }
+
+  const transcriptSnapshot = room.transcript.slice();
+  const snapshotLen = transcriptSnapshot.length;
+  summaryInFlight.add(id);
+  console.log(
+    `[summary] room=${id} lines=${snapshotLen} since=${room.summary.linesSinceLastSummary}`
+  );
+
+  summarizeMeeting(transcriptSnapshot)
+    .then((bullets) => {
+      if (!bullets.length) {
+        console.warn(`[summary] room=${id} empty bullets — will retry later`);
+        const r = getRoom(id);
+        if (r) r.summary.linesSinceLastSummary = Math.max(0, SUMMARY_EVERY_N_LINES - 1);
+        return;
+      }
+      const summary = setSummary(id, bullets);
+      const r = getRoom(id);
+      if (r) {
+        r.summary.linesSinceLastSummary = Math.max(0, r.transcript.length - snapshotLen);
+      }
+      console.log(`[summary] room=${id} bullets=${bullets.length}`);
+      io.to(id).emit("summary:update", summary);
+    })
+    .catch((err) => {
+      console.error(`[summary] room=${id} failed: ${err.message}`);
+      const r = getRoom(id);
+      if (r) {
+        r.summary.linesSinceLastSummary = Math.max(
+          r.summary.linesSinceLastSummary,
+          SUMMARY_EVERY_N_LINES
+        );
+      }
+      io.to(id).emit("pipeline:error", {
+        stage: "summary",
+        message: err.message,
+      });
+    })
+    .finally(() => {
+      summaryInFlight.delete(id);
+    });
+}
+
+function leaveCurrentRoom(io, socket, currentRoom) {
+  if (!currentRoom) return;
+  const speakerName = socketNames.get(socket.id) || "Guest";
+  finalizeSpeakerBuffer(io, currentRoom, speakerName);
+  socket.leave(currentRoom);
+  removeParticipant(currentRoom, socket.id);
+  socket.to(currentRoom).emit("participant:left", { socketId: socket.id });
+  clearSessionHistory(`${currentRoom}:${speakerName}`);
+}
 
 // ---------------------------------------------------------------------
 // REST endpoints
@@ -191,22 +292,25 @@ const io = new Server(server, {
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 app.get("/api/rooms/:roomId", (req, res) => {
-  const snapshot = roomSnapshot(req.params.roomId);
+  const roomId = normalizeRoomId(req.params.roomId);
+  const snapshot = roomSnapshot(roomId);
   if (!snapshot) return res.status(404).json({ error: "Room not found" });
   res.json(snapshot);
 });
 
 app.get("/api/rooms/:roomId/dashboard", (req, res) => {
-  const snapshot = dashboardSnapshot(req.params.roomId);
+  const roomId = normalizeRoomId(req.params.roomId);
+  const snapshot = dashboardSnapshot(roomId);
   if (!snapshot) return res.status(404).json({ error: "Room not found" });
   res.json(snapshot);
 });
 
 app.post("/api/rooms/:roomId/reset", (req, res) => {
-  const room = resetRoom(req.params.roomId);
-  clearRoomHistory(req.params.roomId);
-  clearRoomBuffers(req.params.roomId);
-  io.to(req.params.roomId).emit("room:reset");
+  const roomId = normalizeRoomId(req.params.roomId);
+  const room = resetRoom(roomId);
+  clearRoomHistory(roomId);
+  clearRoomBuffers(roomId);
+  io.to(roomId).emit("room:reset");
   res.json(roomSnapshot(room.roomId));
 });
 
@@ -216,7 +320,7 @@ app.get("/api/email/status", (_req, res) => {
 
 app.post("/api/rooms/:roomId/email-summary", async (req, res) => {
   try {
-    const { roomId } = req.params;
+    const roomId = normalizeRoomId(req.params.roomId);
     const { to, sentBy } = req.body || {};
     const email = typeof to === "string" ? to.trim() : "";
 
@@ -257,40 +361,46 @@ app.post("/api/rooms/:roomId/email-summary", async (req, res) => {
 // Socket.io: WebRTC signaling + audio pipeline
 // ---------------------------------------------------------------------
 
-// track speaker name per socket for convenience
-const socketNames = new Map();
-
 io.on("connection", (socket) => {
   let currentRoom = null;
 
   // ---- Room membership / WebRTC signaling ----
 
   socket.on("room:join", ({ roomId, name }) => {
-    currentRoom = roomId;
+    const id = normalizeRoomId(roomId);
+    if (!id) return;
+
+    if (currentRoom && currentRoom !== id) {
+      leaveCurrentRoom(io, socket, currentRoom);
+    }
+
+    currentRoom = id;
     socketNames.set(socket.id, name || "Guest");
-    socket.join(roomId);
+    socket.join(id);
 
-    const room = addParticipant(roomId, socket.id, name || "Guest");
+    const room = addParticipant(id, socket.id, name || "Guest");
 
-    // tell the newcomer about everyone already in the room
     const others = Array.from(room.participants.values()).filter(
       (p) => p.socketId !== socket.id
     );
     socket.emit("room:existing-participants", others);
 
-    // tell everyone else about the newcomer
-    socket.to(roomId).emit("participant:joined", {
+    socket.to(id).emit("participant:joined", {
       socketId: socket.id,
       name: name || "Guest",
     });
 
-    // send full dashboard snapshot so late joiners see current state
-    socket.emit("dashboard:snapshot", dashboardSnapshot(roomId));
+    socket.emit("dashboard:snapshot", dashboardSnapshot(id));
 
-    const chatHistory = getChatHistory(roomId);
+    const chatHistory = getChatHistory(id);
     if (chatHistory.length > 0) {
-      socket.emit('chat:history', chatHistory);
+      socket.emit("chat:history", chatHistory);
     }
+  });
+
+  socket.on("room:leave", () => {
+    leaveCurrentRoom(io, socket, currentRoom);
+    currentRoom = null;
   });
 
   socket.on("signal:offer", ({ to, offer }) => {
@@ -305,31 +415,29 @@ io.on("connection", (socket) => {
     io.to(to).emit("signal:ice-candidate", { from: socket.id, candidate });
   });
 
-  socket.on('chat:send', ({ roomId, text }) => {
-    if (!roomId || !text?.trim()) return;
-    const senderName = socketNames.get(socket.id) || 'Guest';
+  socket.on("chat:send", ({ roomId, text }) => {
+    const id = normalizeRoomId(roomId || currentRoom);
+    if (!id || !text?.trim()) return;
+    const senderName = socketNames.get(socket.id) || "Guest";
     const result = containsBadWord(text);
-    
+
     if (result.flagged) {
-      // DON'T broadcast - only notify sender
-      socket.emit('chat:blocked', {
+      socket.emit("chat:blocked", {
         text,
-        reason: 'Inappropriate content detected'
+        reason: "Inappropriate content detected",
       });
-      // Report to admin via moderation
-      const alert = addModerationAlert(roomId, senderName, {
+      const alert = addModerationAlert(id, senderName, {
         flagged: true,
         severity: result.severity,
         reason: `Bad word in chat: ${result.matchedWord}`,
         text: text,
       });
-      io.to(roomId).emit('dashboard:moderation', alert);
+      io.to(id).emit("dashboard:moderation", alert);
       return;
     }
-    
-    // Clean message - broadcast to room
-    const msg = addChatMessage(roomId, socket.id, senderName, text.trim());
-    io.to(roomId).emit('chat:message', msg);
+
+    const msg = addChatMessage(id, socket.id, senderName, text.trim());
+    io.to(id).emit("chat:message", msg);
   });
 
   // ---- Speaking indicator (VAD-driven, not audio pipeline) ----
@@ -355,14 +463,15 @@ io.on("connection", (socket) => {
   socket.on(
     "audio:chunk",
     async ({ roomId, audio, mimeType, name }, ack) => {
+      const id = normalizeRoomId(roomId || currentRoom);
       try {
-        if (!roomId || !audio) {
+        if (!id || !audio) {
           if (ack) ack({ ok: false, error: "missing roomId or audio" });
           return;
         }
         const speaker = name || socketNames.get(socket.id) || "Guest";
-        const buffer = Buffer.from(audio);
-        console.log(`[audio] room=${roomId} speaker=${speaker} bytes=${buffer.length} mime=${mimeType || "audio/webm"}`);
+        const buffer = toNodeBuffer(audio);
+        console.log(`[audio] room=${id} speaker=${speaker} bytes=${buffer.length} mime=${mimeType || "audio/webm"}`);
 
         const rawText = await transcribeAudio(buffer, mimeType || "audio/webm");
         if (!rawText || !rawText.trim()) {
@@ -372,65 +481,15 @@ io.on("connection", (socket) => {
         }
         console.log(`[audio] transcript ${speaker}: ${rawText.slice(0, 120)}`);
 
-        const line = addTranscriptLine(roomId, speaker, rawText);
-        io.to(roomId).emit("transcript:update", line);
-        queueTranscriptForDashboard(io, roomId, speaker, rawText);
-
-        // rolling summary every N new lines
-        const room = getRoom(roomId);
-        if (
-          room &&
-          room.summary.linesSinceLastSummary >= SUMMARY_EVERY_N_LINES &&
-          !summaryInFlight.has(roomId)
-        ) {
-          const transcriptSnapshot = room.transcript.slice();
-          const snapshotLen = transcriptSnapshot.length;
-          summaryInFlight.add(roomId);
-          console.log(
-            `[summary] room=${roomId} lines=${snapshotLen} since=${room.summary.linesSinceLastSummary}`
-          );
-          summarizeMeeting(transcriptSnapshot)
-            .then((bullets) => {
-              if (!bullets.length) {
-                console.warn(`[summary] room=${roomId} empty bullets — will retry later`);
-                // Avoid locking the cadence forever if the model returns nothing.
-                const r = getRoom(roomId);
-                if (r) r.summary.linesSinceLastSummary = Math.max(0, SUMMARY_EVERY_N_LINES - 1);
-                return;
-              }
-              const summary = setSummary(roomId, bullets);
-              // Keep credit for lines that arrived while this summary was in flight.
-              const r = getRoom(roomId);
-              if (r) {
-                r.summary.linesSinceLastSummary = Math.max(0, r.transcript.length - snapshotLen);
-              }
-              console.log(`[summary] room=${roomId} bullets=${bullets.length}`);
-              io.to(roomId).emit("summary:update", summary);
-            })
-            .catch((err) => {
-              console.error(`[summary] room=${roomId} failed: ${err.message}`);
-              // Retry sooner after a failure instead of waiting for another full N lines.
-              const r = getRoom(roomId);
-              if (r) {
-                r.summary.linesSinceLastSummary = Math.max(
-                  r.summary.linesSinceLastSummary,
-                  SUMMARY_EVERY_N_LINES
-                );
-              }
-              io.to(roomId).emit("pipeline:error", {
-                stage: "summary",
-                message: err.message,
-              });
-            })
-            .finally(() => {
-              summaryInFlight.delete(roomId);
-            });
-        }
+        const line = addTranscriptLine(id, speaker, rawText);
+        io.to(id).emit("transcript:update", line);
+        queueTranscriptForDashboard(io, id, speaker, rawText);
+        maybeRefreshSummary(io, id);
 
         if (ack) ack({ ok: true });
       } catch (err) {
         console.error(`[audio] transcription failed: ${err.message}`);
-        io.to(roomId || currentRoom).emit("pipeline:error", {
+        io.to(id || currentRoom).emit("pipeline:error", {
           stage: "transcription",
           message: err.message,
         });
@@ -446,18 +505,13 @@ io.on("connection", (socket) => {
   // ---- Disconnect ----
 
   socket.on("disconnect", () => {
-    if (currentRoom) {
-      const speakerName = socketNames.get(socket.id) || "Guest";
-      finalizeSpeakerBuffer(io, currentRoom, speakerName);
-      removeParticipant(currentRoom, socket.id);
-      socket.to(currentRoom).emit("participant:left", { socketId: socket.id });
-      clearSessionHistory(`${currentRoom}:${speakerName}`);
-    }
+    leaveCurrentRoom(io, socket, currentRoom);
+    currentRoom = null;
     socketNames.delete(socket.id);
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`Meet backend listening on port ${PORT}`);
   console.log(
     `AI pipeline: transcription=Gemini (${process.env.GEMINI_VOICE_MODEL || "gemini-3.1-flash-lite"}) | condensation=Gemini (${process.env.GEMINI_TEXT_MODEL || "gemini-3.1-flash-lite"}) | summary=${process.env.SUMMARY_BACKEND || "gemini"}`

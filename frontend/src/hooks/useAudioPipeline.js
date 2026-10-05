@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useVAD } from "./useVAD.js";
+import { normalizeRoomId } from "../lib/roomId.js";
 
 const RECORDER_MIME = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
   ? "audio/webm;codecs=opus"
@@ -67,7 +68,7 @@ export function useAudioPipeline({ socket, roomId, name, stream, listening }) {
       socket.current?.emit(
         "audio:chunk",
         {
-          roomId,
+          roomId: normalizeRoomId(roomId),
           name,
           mimeType: RECORDER_MIME,
           audio: arrayBuffer,

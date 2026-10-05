@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from "react";
 /**
  * Overlay on the local (mirrored) video preview:
  * gesture label, confidence, and optional debug landmarks.
+ * Landmark painting reads a ref so debug does not re-render the meeting tree.
  */
 export default function GestureOverlay({
   visible,
@@ -11,18 +12,25 @@ export default function GestureOverlay({
   holdProgress = 0,
   showBadge = true,
   debugMode = false,
-  debugInfo = null,
+  debugInfoRef = null,
 }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
+    if (!visible || !debugMode) return;
     const canvas = canvasRef.current;
-    if (!canvas || !visible) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
     const dpr = window.devicePixelRatio || 1;
+    let raf = 0;
+    let lastPaint = 0;
 
-    const paint = () => {
+    const paint = (now) => {
+      raf = requestAnimationFrame(paint);
+      if (now - lastPaint < 80) return;
+      lastPaint = now;
+
       const rect = canvas.getBoundingClientRect();
       const w = rect.width;
       const h = rect.height;
@@ -37,37 +45,40 @@ export default function GestureOverlay({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
+      const debugInfo = debugInfoRef?.current;
+      if (!debugInfo) return;
+
       const toX = (nx) => (1 - nx) * w;
       const toY = (ny) => ny * h;
 
-      if (debugMode && debugInfo) {
-        if (debugInfo.landmarks?.length) {
-          ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
-          for (const lm of debugInfo.landmarks) {
-            ctx.beginPath();
-            ctx.arc(toX(lm.x), toY(lm.y), 2, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-        if (debugInfo.indexTip) {
+      if (debugInfo.landmarks?.length) {
+        ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+        for (const lm of debugInfo.landmarks) {
           ctx.beginPath();
-          ctx.fillStyle = "#1ed760";
-          ctx.arc(toX(debugInfo.indexTip.x), toY(debugInfo.indexTip.y), 6, 0, Math.PI * 2);
+          ctx.arc(toX(lm.x), toY(lm.y), 2, 0, Math.PI * 2);
           ctx.fill();
         }
       }
+      if (debugInfo.indexTip) {
+        ctx.beginPath();
+        ctx.fillStyle = "#1ed760";
+        ctx.arc(toX(debugInfo.indexTip.x), toY(debugInfo.indexTip.y), 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
     };
 
-    paint();
-  }, [visible, debugMode, debugInfo]);
+    raf = requestAnimationFrame(paint);
+    return () => cancelAnimationFrame(raf);
+  }, [visible, debugMode, debugInfoRef]);
 
   if (!visible) return null;
 
   const pct = Math.round((confidence || 0) * 100);
+  const debugInfo = debugMode ? debugInfoRef?.current : null;
 
   return (
-    <div className="gesture-overlay" aria-live="polite">
-      <canvas ref={canvasRef} className="gesture-overlay-canvas" />
+    <div className="gesture-overlay">
+      {debugMode && <canvas ref={canvasRef} className="gesture-overlay-canvas" />}
 
       {showBadge && (
         <div className="gesture-badge">

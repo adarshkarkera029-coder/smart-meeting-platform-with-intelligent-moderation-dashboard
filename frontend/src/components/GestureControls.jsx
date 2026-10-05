@@ -88,6 +88,9 @@ export default function GestureControls({
             </span>
           </div>
 
+          {status === "waiting" && (
+            <div className="gesture-hint">Starts after your camera is on.</div>
+          )}
           {status === "loading" && (
             <div className="gesture-hint">Loading hand model…</div>
           )}

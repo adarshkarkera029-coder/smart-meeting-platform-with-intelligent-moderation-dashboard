@@ -4,6 +4,18 @@
 
 const rooms = new Map();
 
+/** Same classroom code from host + guest must map to one Socket.io room. */
+export function normalizeRoomId(roomId) {
+  return String(roomId || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 64);
+}
+
 function createRoom(roomId) {
   return {
     roomId,

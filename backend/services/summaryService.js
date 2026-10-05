@@ -1,8 +1,9 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { HumanMessage } from "@langchain/core/messages";
 
 const SUMMARY_BACKEND = (process.env.SUMMARY_BACKEND || "gemini").toLowerCase();
-const GEMINI_API_KEY_TEXT = process.env.GEMINI_API_KEY_TEXT;
+const GEMINI_API_KEY_TEXT =
+  process.env.GEMINI_API_KEY_TEXT || process.env.GEMINI_API_KEY_VOICE;
 const GEMINI_TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || "gemini-3.1-flash-lite";
 const HF_TOKEN = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY;
 const HF_SUMMARY_MODEL =
@@ -10,7 +11,7 @@ const HF_SUMMARY_MODEL =
 const HF_PROVIDER = process.env.HF_PROVIDER || "groq";
 const HF_CHAT_URL =
   process.env.HF_CHAT_URL || "https://router.huggingface.co/v1/chat/completions";
-const SUMMARY_TIMEOUT_MS = parseInt(process.env.SUMMARY_TIMEOUT_MS || "25000", 10);
+const SUMMARY_TIMEOUT_MS = parseInt(process.env.SUMMARY_TIMEOUT_MS || "45000", 10);
 
 const SUMMARY_SYSTEM = `You summarize meetings into 3-6 short bullet points.
 Focus on decisions, topics, and action items. Be concise, no fluff.
@@ -54,8 +55,6 @@ function contentToText(content) {
 async function summarizeWithGemini(transcript) {
   if (!GEMINI_API_KEY_TEXT) throw new Error("GEMINI_API_KEY_TEXT is not set");
 
-  // Avoid LangChain PromptTemplate — user transcripts often contain `{...}`
-  // which breaks f-string template parsing and silently kills summarization.
   const model = new ChatGoogleGenerativeAI({
     model: GEMINI_TEXT_MODEL,
     apiKey: GEMINI_API_KEY_TEXT,
@@ -63,9 +62,9 @@ async function summarizeWithGemini(transcript) {
     maxRetries: 2,
   });
 
+  // Gemini is unreliable with LangChain SystemMessage on some deploy models.
   const res = await model.invoke([
-    new SystemMessage(SUMMARY_SYSTEM),
-    new HumanMessage(`Transcript:\n${transcript}`),
+    new HumanMessage(`${SUMMARY_SYSTEM}\n\nTranscript:\n${transcript}`),
   ]);
   return contentToText(res?.content);
 }
@@ -112,6 +111,20 @@ async function summarizeWithHuggingFace(transcript) {
   return content;
 }
 
+function extractiveBullets(transcriptLines) {
+  const seen = new Set();
+  const bullets = [];
+  for (const line of transcriptLines.slice(-8)) {
+    const text = String(line?.text || "").replace(/\s+/g, " ").trim();
+    if (text.length < 8) continue;
+    const item = `${line.speaker || "Speaker"}: ${text}`.slice(0, 160);
+    if (seen.has(item)) continue;
+    seen.add(item);
+    bullets.push(item);
+  }
+  return bullets.slice(0, 6);
+}
+
 export async function summarizeMeeting(transcriptLines) {
   if (!transcriptLines || !transcriptLines.length) return [];
 
@@ -122,38 +135,42 @@ export async function summarizeMeeting(transcriptLines) {
   const allowGeminiFallback =
     (process.env.SUMMARY_FALLBACK_GEMINI || "true").toLowerCase() !== "false";
 
-  let raw;
-  if (preferHf) {
-    try {
-      raw = await withTimeout(
-        summarizeWithHuggingFace(transcript),
-        SUMMARY_TIMEOUT_MS,
-        "summary-hf"
-      );
-    } catch (err) {
-      if (!allowGeminiFallback || !GEMINI_API_KEY_TEXT) throw err;
-      console.warn(`[summary] HF failed (${err.message}); falling back to Gemini`);
+  try {
+    let raw;
+    if (preferHf) {
+      try {
+        raw = await withTimeout(
+          summarizeWithHuggingFace(transcript),
+          SUMMARY_TIMEOUT_MS,
+          "summary-hf"
+        );
+      } catch (err) {
+        if (!allowGeminiFallback || !GEMINI_API_KEY_TEXT) throw err;
+        console.warn(`[summary] HF failed (${err.message}); falling back to Gemini`);
+        raw = await withTimeout(
+          summarizeWithGemini(transcript),
+          SUMMARY_TIMEOUT_MS,
+          "summary-gemini"
+        );
+      }
+    } else {
       raw = await withTimeout(
         summarizeWithGemini(transcript),
         SUMMARY_TIMEOUT_MS,
-        "summary-gemini"
+        "summary"
       );
     }
-  } else {
-    raw = await withTimeout(
-      summarizeWithGemini(transcript),
-      SUMMARY_TIMEOUT_MS,
-      "summary"
-    );
-  }
 
-  const bullets = parseBullets(raw);
-  if (!bullets.length && raw?.trim()) {
-    // Last-resort: keep a shortened single line so the UI isn't stuck empty.
-    const fallback = raw.replace(/\s+/g, " ").trim().slice(0, 180);
-    return fallback ? [fallback] : [];
+    const bullets = parseBullets(raw);
+    if (!bullets.length && raw?.trim()) {
+      const fallback = raw.replace(/\s+/g, " ").trim().slice(0, 180);
+      return fallback ? [fallback] : extractiveBullets(transcriptLines);
+    }
+    return bullets.length ? bullets : extractiveBullets(transcriptLines);
+  } catch (err) {
+    console.error(`[summary] model failed (${err.message}); using extractive fallback`);
+    return extractiveBullets(transcriptLines);
   }
-  return bullets;
 }
 
 function parseBullets(raw) {

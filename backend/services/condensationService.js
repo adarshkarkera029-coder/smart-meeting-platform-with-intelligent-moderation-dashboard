@@ -27,7 +27,8 @@ import { z } from "zod";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const GEMINI_API_KEY_TEXT = process.env.GEMINI_API_KEY_TEXT;
+const GEMINI_API_KEY_TEXT =
+  process.env.GEMINI_API_KEY_TEXT || process.env.GEMINI_API_KEY_VOICE;
 const GEMINI_TEXT_MODEL   = process.env.GEMINI_TEXT_MODEL || "gemini-3.1-flash-lite";
 
 /**
