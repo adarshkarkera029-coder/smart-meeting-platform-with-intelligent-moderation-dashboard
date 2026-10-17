@@ -108,7 +108,7 @@ export function AuthProvider({ children }) {
       photoURL: "",
       provider: "guest",
     };
-    writeGuest(guest);
+    writeStored(GUEST_KEY, guest);
     setGuestUser(guest);
     setAuthError(null);
   };
