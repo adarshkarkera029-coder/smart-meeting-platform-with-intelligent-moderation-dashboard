@@ -6,17 +6,18 @@
 /** Gestures treated as inappropriate / safety-restricted. */
 export const RESTRICTED_GESTURES = [
   "middle_finger",
-  // Add more IDs later, e.g. "obscene_gesture_2"
+  "offensive_gesture",
+  "threat_gesture",
 ];
 
 /**
- * High confidence before a restricted frame counts.
- * Match the on-screen gesture badge so: if UI shows restricted → camera off now.
+ * Confidence threshold before a restricted frame counts.
+ * Tuned to 0.58 so inappropriate signs are detected reliably across camera angles.
  */
-export const RESTRICTED_CONFIDENCE_THRESHOLD = 0.65;
+export const RESTRICTED_CONFIDENCE_THRESHOLD = 0.58;
 
 /** General gesture badge confidence (non-safety). */
-export const GESTURE_CONFIDENCE_THRESHOLD = 0.65;
+export const GESTURE_CONFIDENCE_THRESHOLD = 0.60;
 
 /**
  * Consecutive high-confidence restricted frames required before camera cut.
@@ -37,7 +38,7 @@ export const CAMERA_SETTLE_MS = 1200;
  * Detection cadence after the camera is live. Keep this modest so the
  * meeting UI and camera preview stay smooth.
  */
-export const DETECTION_INTERVAL_MS = 250;
+export const DETECTION_INTERVAL_MS = 300;
 
 /** How often the badge/confidence may re-render React. */
 export const UI_UPDATE_INTERVAL_MS = 400;
@@ -66,5 +67,7 @@ export const GESTURE_LABELS = {
   victory: "Victory",
   pointing: "Pointing",
   middle_finger: "Restricted gesture",
+  offensive_gesture: "Restricted gesture",
+  threat_gesture: "Restricted gesture",
   unknown: "Hand detected",
 };

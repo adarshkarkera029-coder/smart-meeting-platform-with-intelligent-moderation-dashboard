@@ -111,6 +111,11 @@ html[data-theme="light"] #root {
   background: var(--bg-0);
 }
 
+:focus-visible {
+  outline: 2px solid var(--accent, #7cffd4);
+  outline-offset: 2px;
+}
+
 /* ------------------------------------------------------------------ */
 /* Aurora + grain — global, sits on pure black everywhere              */
 /* ------------------------------------------------------------------ */
@@ -401,6 +406,10 @@ html[data-theme="light"] .auth-screen {
   width: min(440px, 100%);
   border-radius: 28px;
   padding: 28px;
+}
+
+.join-form {
+  display: contents;
 }
 
 .brand-name {
@@ -885,6 +894,62 @@ html[data-theme="light"] .auth-screen {
   box-shadow: 0 10px 22px rgba(251, 113, 133, 0.35);
 }
 
+.player-bar .control-btn.active-btn {
+  background: rgba(124, 255, 212, 0.2);
+  color: #7cffd4;
+  border: 1px solid rgba(124, 255, 212, 0.4);
+}
+
+.player-bar .control-btn-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tile-hand-chip {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(245, 158, 11, 0.95);
+  color: #000;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+  animation: pulseHand 1.6s infinite ease-in-out;
+}
+
+@keyframes pulseHand {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.sidebar-icon-logout {
+  color: var(--text-2);
+}
+
+.sidebar-icon-logout:hover,
+.sidebar-icon-logout:focus-visible {
+  color: #fb7185;
+  background: rgba(251, 113, 133, 0.12);
+}
+
 /* ------------------------------------------------------------------ */
 /* Right panel + chat                                                  */
 /* ------------------------------------------------------------------ */
@@ -1133,6 +1198,18 @@ html[data-theme="light"] .player-bar .control-btn-play svg {
   fill: currentColor;
 }
 
+html[data-theme="light"] .player-bar .control-btn.active-btn {
+  background: rgba(13, 148, 136, 0.16) !important;
+  color: #0f766e !important;
+  border: 1px solid rgba(13, 148, 136, 0.35) !important;
+}
+
+html[data-theme="light"] .sidebar-icon-logout:hover,
+html[data-theme="light"] .sidebar-icon-logout:focus-visible {
+  color: #e11d48 !important;
+  background: rgba(225, 29, 72, 0.1) !important;
+}
+
 html[data-theme="light"] .join-btn,
 html[data-theme="light"] .join-btn:disabled,
 html[data-theme="light"] .auth-provider-btn,
@@ -1177,6 +1254,40 @@ html[data-theme="light"] .calendar-row {
 /* ------------------------------------------------------------------ */
 /* Responsive                                                          */
 /* ------------------------------------------------------------------ */
+@media (max-width: 1200px) {
+  .lumen-shell {
+    gap: 36px;
+    width: min(980px, calc(100vw - 32px));
+  }
+  .lumen-display {
+    font-size: clamp(34px, 4.2vw, 52px);
+  }
+}
+
+@media (max-height: 860px) and (min-width: 981px) {
+  .lumen-shell {
+    gap: 28px;
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+  .lumen-display {
+    font-size: clamp(30px, 3.8vw, 46px);
+    margin-bottom: 8px;
+  }
+  .lumen-lead {
+    margin-bottom: 16px;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .bento-card {
+    padding: 12px 14px;
+  }
+  .join-card,
+  .auth-card {
+    padding: 24px 24px 20px;
+  }
+}
+
 @media (max-width: 980px) {
   .lumen-shell {
     grid-template-columns: 1fr;
@@ -1189,7 +1300,7 @@ html[data-theme="light"] .calendar-row {
   }
 
   .lumen-display {
-    font-size: 40px;
+    font-size: 36px;
   }
 
   .status-island {
@@ -1227,9 +1338,10 @@ html[data-theme="light"] .calendar-row {
     padding-bottom: max(160px, calc(80px + var(--kb-inset, 0px)));
   }
 
-  /* Keep marketing info first; sign-in stays below and is scrollable into view */
+  /* On mobile: show login/join card first so users immediately see form controls */
   .lumen-shell .lumen-visual {
-    order: 0;
+    order: 2;
+    margin-top: 12px;
   }
 
   .lumen-shell .lumen-panel,
@@ -1238,7 +1350,7 @@ html[data-theme="light"] .calendar-row {
     order: 1;
     width: 100%;
     max-width: none;
-    margin: 0 0 24px;
+    margin: 0 0 16px;
     padding: 20px 16px 24px;
     flex-shrink: 0;
   }

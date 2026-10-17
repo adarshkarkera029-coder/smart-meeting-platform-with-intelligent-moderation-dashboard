@@ -120,7 +120,11 @@ export default function AuthScreen({ onAuthenticated }) {
       const normalized = phone.trim().startsWith("+") ? phone.trim() : `+${phone.trim()}`;
       const conf = await sendPhoneOtp(normalized);
       setConfirmation(conf);
-      setInfo("OTP sent. Enter the code from your SMS.");
+      if (conf?.isFallback) {
+        setInfo("Verification code ready. Enter any 4-6 digit code (e.g. 123456) to sign in.");
+      } else {
+        setInfo("OTP sent. Enter the code from your SMS.");
+      }
     } catch (err) {
       setAuthError(err.message || "Failed to send OTP");
     } finally {

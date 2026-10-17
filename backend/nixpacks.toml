@@ -1,3 +1,5 @@
 # ffmpeg is required to convert browser webm/opus blobs before Gemini STT
 [phases.setup]
+nixPkgs = ["ffmpeg"]
 aptPkgs = ["ffmpeg"]
+pkgs = ["ffmpeg"]

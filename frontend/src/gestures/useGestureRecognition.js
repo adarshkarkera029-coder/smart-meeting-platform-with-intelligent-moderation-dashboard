@@ -221,6 +221,12 @@ export function useGestureRecognition({
     const tick = () => {
       if (cancelled) return;
 
+      // Pause ML vision processing when tab is in background to save battery
+      if (typeof document !== "undefined" && document.hidden) {
+        timerRef.current = setTimeout(tick, 1000);
+        return;
+      }
+
       const video = videoRef?.current;
       const lm = landmarkerRef.current;
       if (video && lm && video.readyState >= 2) {

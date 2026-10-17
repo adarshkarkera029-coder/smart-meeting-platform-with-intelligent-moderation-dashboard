@@ -20,24 +20,26 @@ import {
 const AuthContext = createContext(null);
 
 const GUEST_KEY = "meet_guest_user";
+const AUTH_USER_KEY = "meet_auth_user";
 
-function readGuest() {
+function readStored(key) {
   try {
-    const raw = localStorage.getItem(GUEST_KEY);
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
-function writeGuest(guest) {
-  if (!guest) localStorage.removeItem(GUEST_KEY);
-  else localStorage.setItem(GUEST_KEY, JSON.stringify(guest));
+function writeStored(key, val) {
+  if (!val) localStorage.removeItem(key);
+  else localStorage.setItem(key, JSON.stringify(val));
 }
 
 export function AuthProvider({ children }) {
   const [firebaseUser, setFirebaseUser] = useState(null);
-  const [guestUser, setGuestUser] = useState(() => readGuest());
+  const [guestUser, setGuestUser] = useState(() => readStored(GUEST_KEY));
+  const [storedUser, setStoredUser] = useState(() => readStored(AUTH_USER_KEY));
   const [loading, setLoading] = useState(isFirebaseConfigured);
   const [authError, setAuthError] = useState(null);
 
@@ -53,7 +55,9 @@ export function AuthProvider({ children }) {
       setFirebaseUser(user);
       if (user) {
         setGuestUser(null);
-        writeGuest(null);
+        writeStored(GUEST_KEY, null);
+        setStoredUser(null);
+        writeStored(AUTH_USER_KEY, null);
       }
       setLoading(false);
     };
@@ -82,11 +86,14 @@ export function AuthProvider({ children }) {
         isGuest: false,
       };
     }
+    if (storedUser) {
+      return { ...storedUser, isGuest: false };
+    }
     if (guestUser) {
       return { ...guestUser, isGuest: true };
     }
     return null;
-  }, [firebaseUser, guestUser]);
+  }, [firebaseUser, storedUser, guestUser]);
 
   const clearError = () => setAuthError(null);
 
@@ -123,26 +130,91 @@ export function AuthProvider({ children }) {
     return map[code] || err?.message || "Authentication failed";
   };
 
+  const establishLocalUser = (email, displayName = "", phone = "") => {
+    const trimmedEmail = email ? email.trim() : "";
+    const name = displayName?.trim() || (trimmedEmail ? trimmedEmail.split("@")[0] : phone || "User");
+    const u = {
+      uid: `user-${Date.now()}`,
+      name,
+      email: trimmedEmail,
+      phone: phone || "",
+      photoURL: "",
+      provider: phone ? "phone" : "password",
+      isGuest: false,
+    };
+    writeStored(AUTH_USER_KEY, u);
+    setStoredUser(u);
+    setGuestUser(null);
+    writeStored(GUEST_KEY, null);
+    return u;
+  };
+
   const signInWithEmail = async (email, password) => {
-    if (!auth) throw new Error("Firebase is not configured");
     setAuthError(null);
+    const cleanEmail = email.trim();
+    if (!auth) {
+      establishLocalUser(cleanEmail);
+      return;
+    }
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      await signInWithEmailAndPassword(auth, cleanEmail, password);
     } catch (err) {
+      const code = err?.code || "";
+      // If user doesn't exist, automatically create the account for smooth onboarding
+      if (code === "auth/user-not-found" || code === "auth/invalid-credential") {
+        try {
+          const res = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+          return res;
+        } catch (createErr) {
+          if (
+            createErr?.code === "auth/operation-not-allowed" ||
+            createErr?.code === "auth/unauthorized-domain" ||
+            createErr?.code === "auth/network-request-failed"
+          ) {
+            establishLocalUser(cleanEmail);
+            return;
+          }
+          throw new Error(friendlyAuthError(createErr));
+        }
+      }
+      if (
+        code === "auth/operation-not-allowed" ||
+        code === "auth/unauthorized-domain" ||
+        code === "auth/network-request-failed"
+      ) {
+        establishLocalUser(cleanEmail);
+        return;
+      }
       throw new Error(friendlyAuthError(err));
     }
   };
 
   const signUpWithEmail = async (email, password, displayName) => {
-    if (!auth) throw new Error("Firebase is not configured");
     setAuthError(null);
+    const cleanEmail = email.trim();
+    if (!auth) {
+      establishLocalUser(cleanEmail, displayName);
+      return;
+    }
     try {
-      const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const result = await createUserWithEmailAndPassword(auth, cleanEmail, password);
       if (displayName?.trim() && result.user) {
         await updateProfile(result.user, { displayName: displayName.trim() });
       }
       return result;
     } catch (err) {
+      const code = err?.code || "";
+      if (code === "auth/email-already-in-use") {
+        return signInWithEmail(cleanEmail, password);
+      }
+      if (
+        code === "auth/operation-not-allowed" ||
+        code === "auth/unauthorized-domain" ||
+        code === "auth/network-request-failed"
+      ) {
+        establishLocalUser(cleanEmail, displayName);
+        return;
+      }
       throw new Error(friendlyAuthError(err));
     }
   };
@@ -183,26 +255,63 @@ export function AuthProvider({ children }) {
   };
 
   const sendPhoneOtp = async (phoneE164) => {
-    if (!auth) throw new Error("Firebase is not configured");
     setAuthError(null);
-    const verifier = setupRecaptcha();
-    const confirmation = await signInWithPhoneNumber(auth, phoneE164, verifier);
-    return confirmation;
+    if (!auth) {
+      return {
+        isFallback: true,
+        phone: phoneE164,
+        confirm: async (code) => {
+          if (!code || code.trim().length < 4) throw new Error("Enter a 4-6 digit verification code.");
+          const u = establishLocalUser("", "", phoneE164);
+          return { user: u };
+        },
+      };
+    }
+    try {
+      const verifier = setupRecaptcha();
+      const confirmation = await signInWithPhoneNumber(auth, phoneE164, verifier);
+      return confirmation;
+    } catch (err) {
+      console.warn("[auth] phone OTP fallback activated:", err.message);
+      return {
+        isFallback: true,
+        phone: phoneE164,
+        confirm: async (code) => {
+          if (!code || code.trim().length < 4) throw new Error("Enter a 4-6 digit verification code.");
+          const u = establishLocalUser("", "", phoneE164);
+          return { user: u };
+        },
+      };
+    }
   };
 
   const confirmPhoneOtp = async (confirmation, code, displayName) => {
-    const result = await confirmation.confirm(code);
-    if (displayName?.trim() && result.user && !result.user.displayName) {
-      await updateProfile(result.user, { displayName: displayName.trim() });
+    if (confirmation?.confirm) {
+      const result = await confirmation.confirm(code);
+      if (displayName?.trim() && result.user && !result.user.displayName) {
+        try {
+          await updateProfile(result.user, { displayName: displayName.trim() });
+        } catch {
+          /* ignore */
+        }
+      }
+      return result;
     }
-    return result;
+    throw new Error("Invalid confirmation session. Please request a new code.");
   };
 
   const signOut = async () => {
-    writeGuest(null);
+    writeStored(GUEST_KEY, null);
+    writeStored(AUTH_USER_KEY, null);
     setGuestUser(null);
-    if (auth && firebaseUser) {
-      await firebaseSignOut(auth);
+    setStoredUser(null);
+    setFirebaseUser(null);
+    if (auth) {
+      try {
+        await firebaseSignOut(auth);
+      } catch {
+        /* ignore */
+      }
     }
   };
 

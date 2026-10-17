@@ -23,7 +23,7 @@ import {
 
 import { containsBadWord } from "./badWordFilter.js";
 
-import { transcribeAudio } from "./services/transcriptionService.js";
+import { transcribeAudio, getFfmpegBin } from "./services/transcriptionService.js";
 import {
   condenseTranscriptStream,
   clearRoomHistory,
@@ -452,6 +452,26 @@ io.on("connection", (socket) => {
     socket.to(currentRoom).emit("speaking:stop", { socketId: socket.id });
   });
 
+  // ---- Hand raise & Meeting controls ----
+
+  socket.on("hand:toggle", ({ raised }) => {
+    if (!currentRoom) return;
+    const senderName = socketNames.get(socket.id) || "Guest";
+    io.to(currentRoom).emit("hand:toggled", {
+      socketId: socket.id,
+      name: senderName,
+      raised: !!raised,
+    });
+  });
+
+  socket.on("room:mute-all", () => {
+    if (!currentRoom) return;
+    const senderName = socketNames.get(socket.id) || "Host";
+    socket.to(currentRoom).emit("room:mute-request", {
+      by: senderName,
+    });
+  });
+
   // ---- Audio pipeline: speech:start -> audio:chunk -> speech:end ----
   // Segments are buffered client-side by VAD and sent as one chunk per
   // utterance, so we just process on speech:end.
@@ -513,6 +533,7 @@ io.on("connection", (socket) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Meet backend listening on port ${PORT}`);
+  console.log(`FFmpeg binary: ${getFfmpegBin()}`);
   console.log(
     `AI pipeline: transcription=Gemini (${process.env.GEMINI_VOICE_MODEL || "gemini-3.1-flash-lite"}) | condensation=Gemini (${process.env.GEMINI_TEXT_MODEL || "gemini-3.1-flash-lite"}) | summary=${process.env.SUMMARY_BACKEND || "gemini"}`
   );

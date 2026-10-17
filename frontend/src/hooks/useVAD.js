@@ -73,8 +73,21 @@ export function useVAD(stream, { onSpeechStart, onSpeechEnd, enabled = true } = 
       });
     };
 
+    let lastSampleTime = 0;
+    let lastLevelTime = 0;
+    let lastLevelVal = 0;
+
     const startTick = () => {
       if (cancelled) return;
+
+      const now = performance.now();
+      // Throttle analysis to ~30Hz to preserve CPU and battery
+      if (now - lastSampleTime < 32) {
+        rafRef.current = requestAnimationFrame(startTick);
+        return;
+      }
+      lastSampleTime = now;
+
       analyser.getFloatTimeDomainData(buffer);
       let sumSquares = 0;
       let peak = 0;
@@ -85,7 +98,17 @@ export function useVAD(stream, { onSpeechStart, onSpeechEnd, enabled = true } = 
         if (abs > peak) peak = abs;
       }
       const rms = Math.sqrt(sumSquares / buffer.length);
-      setLevel(Math.min(1, rms * 8));
+
+      // Quantize level and throttle state updates to prevent re-rendering Meeting 60 times/sec
+      const rawLevel = Math.min(1, rms * 8);
+      const roundedLevel = rawLevel < 0.04 ? 0 : Math.round(rawLevel * 20) / 20;
+      if (now - lastLevelTime > 80 || (roundedLevel === 0 && lastLevelVal !== 0)) {
+        if (roundedLevel !== lastLevelVal) {
+          lastLevelVal = roundedLevel;
+          lastLevelTime = now;
+          setLevel(roundedLevel);
+        }
+      }
 
       const isLoud = rms > RMS_THRESHOLD && peak > 0.038;
 

@@ -20,6 +20,7 @@ export default function VideoTile({
   isLocal = false,
   micOn = true,
   camOn = true,
+  handRaised = false,
   variant = "tile",
   /** Callback so parent can attach MediaPipe to the same <video> element */
   onVideoRef = null,
@@ -93,6 +94,12 @@ export default function VideoTile({
 
       {isLocal && gestureOverlayProps && hasVideo && (
         <GestureOverlay {...gestureOverlayProps} />
+      )}
+
+      {handRaised && (
+        <span className="tile-hand-chip" title={`${name} raised hand`}>
+          ✋ Hand raised
+        </span>
       )}
 
       <div className={isSpotlight ? "tile-name-overlay" : "tile-footer"}>

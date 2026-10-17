@@ -53,9 +53,12 @@ export const badWordsList = [
     { word: 'bajil', severity: 'low'},
     { word: 'potu', severity: 'high' },
     { word: 'saman', severity: 'high' },
-    { word: 'rande', severity: 'high' },
-    { word: 'bolimaga', severity: 'high' }
-
+    { word: 'bolimaga', severity: 'high' },
+    { word: 'stfu', severity: 'medium' },
+    { word: 'kys', severity: 'high' },
+    { word: 'kill yourself', severity: 'high' },
+    { word: 'loser', severity: 'low' },
+    { word: 'scam', severity: 'low' }
 ];
 
 function normalizeText(text) {

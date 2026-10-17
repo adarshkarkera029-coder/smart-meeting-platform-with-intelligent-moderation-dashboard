@@ -64,9 +64,39 @@ export function classifyHandPose(landmarks, handednessScore = 0.9) {
   const extendedCount = [thumb, index, middle, ring, pinky].filter(Boolean).length;
   const base = Math.min(0.98, 0.55 + handednessScore * 0.4);
 
-  // Restricted: middle up, others mostly down
-  if (middle && !index && !ring && !pinky) {
-    return { gesture: "middle_finger", confidence: base };
+  // Relative middle finger geometric dominance checks
+  // (Detects middle finger even when hand is tilted, knuckles bent, or adjacent fingers loosely curled)
+  const wrist = landmarks[WRIST];
+  const middleTip = landmarks[TIP.middle];
+  const indexTip = landmarks[TIP.index];
+  const ringTip = landmarks[TIP.ring];
+  const pinkyTip = landmarks[TIP.pinky];
+
+  const middleWristDist = dist(wrist, middleTip);
+  const indexWristDist = dist(wrist, indexTip);
+  const ringWristDist = dist(wrist, ringTip);
+
+  const middleMcpDist = dist(landmarks[MCP.middle], middleTip);
+  const indexMcpDist = dist(landmarks[MCP.index], indexTip);
+  const ringMcpDist = dist(landmarks[MCP.ring], ringTip);
+
+  const middleProminent =
+    middle &&
+    middleMcpDist > indexMcpDist * 1.25 &&
+    middleMcpDist > ringMcpDist * 1.25 &&
+    middleWristDist > indexWristDist * 1.12 &&
+    middleWristDist > ringWristDist * 1.12;
+
+  const middleHigherThanNeighbors =
+    middle &&
+    middleTip.y < indexTip.y - 0.05 &&
+    middleTip.y < ringTip.y - 0.05 &&
+    !ring &&
+    !pinky;
+
+  // Restricted: middle up, others mostly down OR middle geometrically prominent
+  if ((middle && !index && !ring && !pinky) || middleProminent || middleHigherThanNeighbors) {
+    return { gesture: "middle_finger", confidence: Math.max(base, 0.88) };
   }
 
   if (thumb && !index && !middle && !ring && !pinky) {

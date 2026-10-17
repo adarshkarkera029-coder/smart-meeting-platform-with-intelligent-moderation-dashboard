@@ -175,7 +175,14 @@ function JoinScreen({ roomId, setRoomId, name, setName, onJoin }) {
             <BrandMark size={28} />
             <span className="brand-name">Meet</span>
           </div>
-          <button type="button" className="auth-link-btn signout-inline" onClick={() => signOut()}>
+          <button
+            type="button"
+            className="auth-link-btn signout-inline"
+            onClick={() => {
+              setName("");
+              signOut();
+            }}
+          >
             Sign out
           </button>
         </div>
@@ -213,50 +220,57 @@ function JoinScreen({ roomId, setRoomId, name, setName, onJoin }) {
           </div>
         )}
 
-        <label className="field-label" htmlFor="room-input">
-          {hasRoomFromUrl ? "Room (from invite link)" : "Room code"}
-        </label>
-        <div className="field-row">
-          <input
-            id="room-input"
-            className="field-input"
-            placeholder="e.g. lumen-studio-42"
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value)}
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-          />
+        <form
+          className="join-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canJoin) onJoin();
+          }}
+        >
+          <label className="field-label" htmlFor="room-input">
+            {hasRoomFromUrl ? "Room (from invite link)" : "Room code"}
+          </label>
+          <div className="field-row">
+            <input
+              id="room-input"
+              className="field-input"
+              placeholder="e.g. lumen-studio-42"
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            {!hasRoomFromUrl && (
+              <button
+                type="button"
+                className="ghost-chip-btn"
+                onClick={() => setRoomId(makeRoomCode())}
+              >
+                Generate
+              </button>
+            )}
+          </div>
+
           {!hasRoomFromUrl && (
-            <button
-              type="button"
-              className="ghost-chip-btn"
-              onClick={() => setRoomId(makeRoomCode())}
-            >
-              Generate
-            </button>
+            <p className="join-code-hint">
+              Share this exact code with your friend. Guest login works — they just need the same room id.
+            </p>
           )}
-        </div>
 
-        {!hasRoomFromUrl && (
-          <p className="join-code-hint">
-            Share this exact code with your friend. Guest login works — they just need the same room id.
-          </p>
-        )}
+          <label className="field-label" htmlFor="name-input">Your name in the call</label>
+          <input
+            id="name-input"
+            className="field-input"
+            placeholder="e.g. Priya"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
 
-        <label className="field-label" htmlFor="name-input">Your name in the call</label>
-        <input
-          id="name-input"
-          className="field-input"
-          placeholder="e.g. Priya"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => canJoin && e.key === "Enter" && onJoin()}
-        />
-
-        <button className="join-btn lumen-cta" disabled={!canJoin} onClick={onJoin}>
-          Enter the room
-        </button>
+          <button className="join-btn lumen-cta" type="submit" disabled={!canJoin}>
+            Enter the room
+          </button>
+        </form>
         </div>
       </div>
     </div>
@@ -355,7 +369,7 @@ const HeaderIcons = {
 };
 
 function Meeting({ roomId, name, onLeave }) {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
   const { socket, connected } = useSocket();
 
@@ -366,6 +380,10 @@ function Meeting({ roomId, name, onLeave }) {
   const [layoutMode, setLayoutMode] = useState("grid");
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+  const [handRaised, setHandRaised] = useState(false);
+  const [raisedHands, setRaisedHands] = useState({});
+  const [screenSharing, setScreenSharing] = useState(false);
+  const screenStreamRef = useRef(null);
   const [micStatus, setMicStatus] = useState("requesting");
   const [listening, setListening] = useState(true);
 
@@ -398,17 +416,24 @@ function Meeting({ roomId, name, onLeave }) {
     let cancelled = false;
     setMicStatus("requesting");
 
+    const constraints = {
+      video: {
+        width: { ideal: 640, max: 1280 },
+        height: { ideal: 480, max: 720 },
+        frameRate: { ideal: 24, max: 30 },
+      },
+      audio: {
+        noiseSuppression: true,
+        echoCancellation: true,
+        autoGainControl: true,
+        channelCount: 1,
+        sampleRate: 48000,
+      },
+    };
+
     navigator.mediaDevices
-      .getUserMedia({
-        video: true,
-        audio: {
-          noiseSuppression: true,
-          echoCancellation: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 48000,
-        },
-      })
+      .getUserMedia(constraints)
+      .catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: true }))
       .then((stream) => {
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
@@ -435,11 +460,14 @@ function Meeting({ roomId, name, onLeave }) {
   useEffect(() => {
     return () => {
       localStream?.getTracks().forEach((t) => t.stop());
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
     };
   }, [localStream]);
 
   const mediaReady = Boolean(localStream) || micStatus === "error";
-  const { participants } = useWebRTC({
+  const { participants, replaceVideoTrack } = useWebRTC({
     socket,
     roomId,
     name,
@@ -526,6 +554,19 @@ function Meeting({ roomId, name, onLeave }) {
       setTimeout(() => setBlockedMessage(null), 4000);
     };
 
+    const onHandToggled = ({ socketId, raised }) => {
+      setRaisedHands((prev) => ({ ...prev, [socketId]: raised }));
+    };
+
+    const onMuteRequest = () => {
+      if (localStream) {
+        localStream.getAudioTracks().forEach((t) => {
+          t.enabled = false;
+        });
+      }
+      setMicOn(false);
+    };
+
     s.on("dashboard:snapshot", onSnapshot);
     s.on("dashboard:point", onPoint);
     s.on("dashboard:point:token", onToken);
@@ -536,6 +577,8 @@ function Meeting({ roomId, name, onLeave }) {
     s.on("chat:message", onChatMessage);
     s.on("chat:history", onChatHistory);
     s.on("chat:blocked", onChatBlocked);
+    s.on("hand:toggled", onHandToggled);
+    s.on("room:mute-request", onMuteRequest);
 
     return () => {
       s.off("dashboard:snapshot", onSnapshot);
@@ -548,8 +591,10 @@ function Meeting({ roomId, name, onLeave }) {
       s.off("chat:message", onChatMessage);
       s.off("chat:history", onChatHistory);
       s.off("chat:blocked", onChatBlocked);
+      s.off("hand:toggled", onHandToggled);
+      s.off("room:mute-request", onMuteRequest);
     };
-  }, [socket, connected]);
+  }, [socket, connected, localStream]);
 
   const sendChatMessage = (text) => {
     if (!text.trim()) return false;
@@ -562,21 +607,112 @@ function Meeting({ roomId, name, onLeave }) {
     return true;
   };
 
-  const toggleMic = () => {
+  const toggleMic = useCallback(() => {
     if (!localStream) return;
     const next = !micOn;
     localStream.getAudioTracks().forEach((t) => (t.enabled = next));
     setMicOn(next);
-  };
+  }, [localStream, micOn]);
 
-  const toggleCam = () => {
+  const toggleCam = useCallback(() => {
     if (!localStream) return;
     const next = !camOn;
     localStream.getVideoTracks().forEach((t) => {
       t.enabled = next;
     });
     setCamOn(next);
-  };
+  }, [localStream, camOn]);
+
+  const toggleHand = useCallback(() => {
+    setHandRaised((prev) => {
+      const next = !prev;
+      socket.current?.emit("hand:toggle", { raised: next });
+      return next;
+    });
+  }, [socket]);
+
+  const stopScreenShare = useCallback(() => {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach((t) => t.stop());
+      screenStreamRef.current = null;
+    }
+    setScreenSharing(false);
+    const camTrack = localStream?.getVideoTracks()?.[0];
+    if (camTrack && replaceVideoTrack) {
+      replaceVideoTrack(camTrack);
+    }
+  }, [localStream, replaceVideoTrack]);
+
+  const toggleScreenShare = useCallback(async () => {
+    if (screenSharing) {
+      stopScreenShare();
+      return;
+    }
+    try {
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        alert("Screen sharing is not supported in this browser.");
+        return;
+      }
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: "always" },
+        audio: false,
+      });
+      screenStreamRef.current = stream;
+      const screenTrack = stream.getVideoTracks()[0];
+      if (screenTrack) {
+        screenTrack.onended = () => {
+          stopScreenShare();
+        };
+        if (replaceVideoTrack) {
+          await replaceVideoTrack(screenTrack);
+        }
+      }
+      setScreenSharing(true);
+    } catch (err) {
+      if (err.name !== "NotAllowedError") {
+        console.warn("Screen share error:", err);
+      }
+    }
+  }, [screenSharing, stopScreenShare, replaceVideoTrack]);
+
+  const handleMuteAll = useCallback(() => {
+    socket.current?.emit("room:mute-all");
+  }, [socket]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) {
+        return;
+      }
+      const key = e.key.toLowerCase();
+      if (key === "m") {
+        e.preventDefault();
+        toggleMic();
+      } else if (key === "v") {
+        e.preventDefault();
+        toggleCam();
+      } else if (key === "h") {
+        e.preventDefault();
+        toggleHand();
+      } else if (key === "c") {
+        e.preventDefault();
+        setActiveTab((curr) => (curr === "chat" ? null : "chat"));
+        setUnreadChat(0);
+      } else if (key === "s") {
+        e.preventDefault();
+        setActiveTab((curr) => (curr === "summary" ? null : "summary"));
+      } else if (e.key === "Escape") {
+        setShowInvite(false);
+        setShowCalendar(false);
+        setShowMail(false);
+        setGesturePanelOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleMic, toggleCam, toggleHand]);
 
   const toggleInvite = () => setShowInvite((v) => !v);
 
@@ -650,6 +786,22 @@ function Meeting({ roomId, name, onLeave }) {
           >
             {SidebarIcons.moon}
           </button>
+          {user && (
+            <button
+              type="button"
+              className="sidebar-icon sidebar-icon-logout"
+              onClick={() => {
+                signOut();
+                onLeave();
+              }}
+              title={`Sign out (${user.email || user.phoneNumber || user.displayName || "User"})`}
+              aria-label="Sign out"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
         </div>
       </aside>
 
@@ -705,6 +857,8 @@ function Meeting({ roomId, name, onLeave }) {
               localLevel={level}
               micOn={micOn}
               camOn={camOn}
+              localHandRaised={handRaised}
+              raisedHands={raisedHands}
               participants={participants}
               layoutMode={layoutMode}
               onLocalVideoRef={setLocalVideoEl}
@@ -823,6 +977,17 @@ function Meeting({ roomId, name, onLeave }) {
         onToggleCam={toggleCam}
         listening={listening}
         onToggleListening={() => setListening((v) => !v)}
+        handRaised={handRaised}
+        onToggleHand={toggleHand}
+        screenSharing={screenSharing}
+        onToggleScreenShare={toggleScreenShare}
+        onMuteAll={handleMuteAll}
+        chatOpen={activeTab === "chat"}
+        onToggleChat={() => {
+          setActiveTab((curr) => (curr === "chat" ? null : "chat"));
+          setUnreadChat(0);
+        }}
+        unreadChat={unreadChat}
         micStatus={micStatus}
         onLeave={onLeave}
         name={name}

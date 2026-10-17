@@ -20,6 +20,15 @@ export default function GestureControls({
   onReenableCamera,
   onDismissNotice,
 }) {
+  React.useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") onToggleOpen();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onToggleOpen]);
+
   const pct = Math.round((confidence || 0) * 100);
 
   return (

@@ -5,10 +5,15 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage } from "@langchain/core/messages";
+import ffmpegStatic from "ffmpeg-static";
 
 const GEMINI_API_KEY_VOICE = process.env.GEMINI_API_KEY_VOICE;
 const GEMINI_VOICE_MODEL = process.env.GEMINI_VOICE_MODEL || "gemini-3.1-flash-lite";
-const FFMPEG_BIN = process.env.FFMPEG_PATH || "ffmpeg";
+
+export function getFfmpegBin() {
+  return process.env.FFMPEG_PATH || ffmpegStatic || "ffmpeg";
+}
+
 const STT_TIMEOUT_MS = parseInt(process.env.STT_TIMEOUT_MS || "20000", 10);
 
 /** Keep in sync with client MIN_BLOB_BYTES (slightly lower to avoid silent drops). */
@@ -77,13 +82,27 @@ function normalizeMime(mimeType = "") {
 
 function runFfmpeg(args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(FFMPEG_BIN, args, { stdio: ["ignore", "ignore", "pipe"] });
+    const bin = getFfmpegBin();
+    const child = spawn(bin, args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
     });
     child.on("error", (err) => {
-      reject(new Error(`ffmpeg not available (${err.message})`));
+      const fallbackBin = bin === ffmpegStatic ? "ffmpeg" : ffmpegStatic;
+      if (fallbackBin && err.code === "ENOENT") {
+        console.warn(`[stt] ffmpeg binary "${bin}" failed (${err.message}); trying fallback "${fallbackBin}"`);
+        const fallbackChild = spawn(fallbackBin, args, { stdio: ["ignore", "ignore", "pipe"] });
+        let fallbackStderr = "";
+        fallbackChild.stderr.on("data", (c) => { fallbackStderr += c; });
+        fallbackChild.on("error", (e) => reject(new Error(`ffmpeg not available (${e.message})`)));
+        fallbackChild.on("close", (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`ffmpeg exited ${code}: ${fallbackStderr.slice(-240)}`));
+        });
+        return;
+      }
+      reject(new Error(`ffmpeg not available at "${bin}" (${err.message})`));
     });
     child.on("close", (code) => {
       if (code === 0) resolve();
@@ -182,12 +201,14 @@ async function transcribeOnce(audioBuffer, mimeType = "audio/webm") {
       ? audioBuffer
       : await toWav(audioBuffer, extForMime(sourceMime));
   } catch (err) {
-    console.warn(`[stt] skip utterance — cannot build valid wav: ${err.message}`);
-    return "";
+    console.warn(`[stt] wav conversion failed (${err.message}); attempting direct audio transcription`);
+    payload = audioBuffer;
+    sendMime = sourceMime;
   }
 
-  if (!payload || payload.length < MIN_WAV_BYTES) {
-    console.warn(`[stt] skip utterance — wav too small (${payload?.length || 0})`);
+  const minBytes = sendMime.includes("wav") ? MIN_WAV_BYTES : MIN_AUDIO_BYTES;
+  if (!payload || payload.length < minBytes) {
+    console.warn(`[stt] skip utterance — audio payload too small (${payload?.length || 0} bytes)`);
     return "";
   }
 

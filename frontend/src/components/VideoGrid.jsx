@@ -8,6 +8,8 @@ export default function VideoGrid({
   localLevel,
   micOn,
   camOn = true,
+  localHandRaised = false,
+  raisedHands = {},
   participants,
   layoutMode = "grid",
   onLocalVideoRef = null,
@@ -26,6 +28,7 @@ export default function VideoGrid({
       level: localLevel,
       micOn,
       camOn,
+      handRaised: localHandRaised,
     },
     ...remoteEntries.map(([socketId, p]) => ({
       id: socketId,
@@ -36,6 +39,7 @@ export default function VideoGrid({
       level: p.speaking ? 0.6 : 0,
       micOn: true,
       camOn: true,
+      handRaised: !!raisedHands[socketId],
     })),
   ];
 
@@ -63,6 +67,7 @@ export default function VideoGrid({
             level={localLevel}
             micOn={micOn}
             camOn={camOn}
+            handRaised={localHandRaised}
             variant="spotlight"
             onVideoRef={onLocalVideoRef}
             gestureOverlayProps={gestureOverlayProps}
@@ -80,6 +85,7 @@ export default function VideoGrid({
                 level={p.speaking ? 0.6 : 0}
                 micOn={true}
                 camOn={true}
+                handRaised={!!raisedHands[socketId]}
                 variant="tile"
               />
             ))}
@@ -116,6 +122,7 @@ export default function VideoGrid({
           level={p.level}
           micOn={p.micOn}
           camOn={p.camOn}
+          handRaised={p.handRaised}
           variant="spotlight"
           onVideoRef={p.isLocal ? onLocalVideoRef : null}
           gestureOverlayProps={p.isLocal ? gestureOverlayProps : null}

@@ -33,7 +33,7 @@ export function useWebRTC({ socket, roomId, name, localStream, ready = true }) {
 
       const pc = new RTCPeerConnection({
         iceServers: getIceServers(),
-        iceCandidatePoolSize: 10,
+        iceCandidatePoolSize: 2,
       });
       peersRef.current[peerId] = pc;
 
@@ -215,5 +215,17 @@ export function useWebRTC({ socket, roomId, name, localStream, ready = true }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, roomId, name, ready, createPeerConnection, flushIce]);
 
-  return { participants };
+  const replaceVideoTrack = useCallback(async (newTrack) => {
+    const promises = [];
+    Object.values(peersRef.current).forEach((pc) => {
+      const senders = pc.getSenders();
+      const videoSender = senders.find((s) => s.track && s.track.kind === "video");
+      if (videoSender) {
+        promises.push(videoSender.replaceTrack(newTrack).catch(() => {}));
+      }
+    });
+    await Promise.all(promises);
+  }, []);
+
+  return { participants, replaceVideoTrack };
 }
