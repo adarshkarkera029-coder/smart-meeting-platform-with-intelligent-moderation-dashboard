@@ -9,3 +9,8 @@ export function normalizeRoomId(roomId) {
     .replace(/^-|-$/g, "")
     .slice(0, 64);
 }
+
+/** Generates an auto-generated 6-digit numeric room code (e.g. "582914"). */
+export function generateRoomCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}

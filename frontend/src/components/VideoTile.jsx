@@ -21,6 +21,9 @@ export default function VideoTile({
   micOn = true,
   camOn = true,
   handRaised = false,
+  isHost = false,
+  canKick = false,
+  onKick = null,
   variant = "tile",
   /** Callback so parent can attach MediaPipe to the same <video> element */
   onVideoRef = null,
@@ -105,6 +108,7 @@ export default function VideoTile({
       <div className={isSpotlight ? "tile-name-overlay" : "tile-footer"}>
         <span className="tile-name-chip">
           <span className="tile-name">{name}{isLocal ? " (You)" : ""}</span>
+          {isHost && <span className="tile-host-chip">Host</span>}
         </span>
         <div className="tile-footer-right">
           {speaking && <Waveform level={level} active={speaking} />}
@@ -112,6 +116,26 @@ export default function VideoTile({
             <span className="tile-mic-icon muted">
               <MicOffIcon />
             </span>
+          )}
+          {!isLocal && canKick && onKick && (
+            <button
+              type="button"
+              className="tile-kick-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm(`Remove ${name} from this meeting?`)) {
+                  onKick();
+                }
+              }}
+              title={`Remove ${name} from meeting`}
+              aria-label={`Remove ${name}`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <circle cx="8.5" cy="7" r="4" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M17 11l6 6M23 11l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
           )}
         </div>
       </div>

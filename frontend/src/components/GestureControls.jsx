@@ -19,6 +19,7 @@ export default function GestureControls({
   safetyNotice,
   onReenableCamera,
   onDismissNotice,
+  isAdmin = false,
 }) {
   React.useEffect(() => {
     if (!open) return;
@@ -53,26 +54,41 @@ export default function GestureControls({
 
       {open && (
         <div className="gesture-panel-body">
-          <div className="gesture-panel-title">AI Gesture Detection</div>
+          <div className="gesture-panel-title">
+            <span>AI Gesture Detection</span>
+            {isAdmin && <span className="host-badge-chip">Admin</span>}
+          </div>
 
-          <label className="gesture-switch">
-            <input
-              type="checkbox"
-              checked={gestureEnabled}
-              onChange={(e) => onToggleGesture(e.target.checked)}
-            />
-            <span>Gesture Detection</span>
-          </label>
+          {isAdmin ? (
+            <label className="gesture-switch">
+              <input
+                type="checkbox"
+                checked={gestureEnabled}
+                onChange={(e) => onToggleGesture(e.target.checked)}
+              />
+              <span>Room Gesture Detection</span>
+            </label>
+          ) : (
+            <div className="gesture-managed-notice">
+              <span
+                className="gesture-managed-indicator"
+                style={{ background: gestureEnabled ? "#7cffd4" : "#fb7185" }}
+              />
+              <span>Detection {gestureEnabled ? "Active" : "Disabled"} (Managed by Host)</span>
+            </div>
+          )}
 
-          <label className={`gesture-switch ${!gestureEnabled ? "is-disabled" : ""}`}>
-            <input
-              type="checkbox"
-              checked={safetyEnabled}
-              disabled={!gestureEnabled}
-              onChange={(e) => onToggleSafety(e.target.checked)}
-            />
-            <span>Safety Detection</span>
-          </label>
+          {isAdmin && (
+            <label className={`gesture-switch ${!gestureEnabled ? "is-disabled" : ""}`}>
+              <input
+                type="checkbox"
+                checked={safetyEnabled}
+                disabled={!gestureEnabled}
+                onChange={(e) => onToggleSafety(e.target.checked)}
+              />
+              <span>Safety Auto-Cut</span>
+            </label>
+          )}
 
           <label className={`gesture-switch ${!gestureEnabled ? "is-disabled" : ""}`}>
             <input

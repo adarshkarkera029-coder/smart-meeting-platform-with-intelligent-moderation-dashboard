@@ -10,6 +10,9 @@ export default function VideoGrid({
   camOn = true,
   localHandRaised = false,
   raisedHands = {},
+  isAdmin = false,
+  adminSocketId = null,
+  onKickParticipant = null,
   participants,
   layoutMode = "grid",
   onLocalVideoRef = null,
@@ -29,6 +32,8 @@ export default function VideoGrid({
       micOn,
       camOn,
       handRaised: localHandRaised,
+      isHost: isAdmin,
+      canKick: false,
     },
     ...remoteEntries.map(([socketId, p]) => ({
       id: socketId,
@@ -40,6 +45,8 @@ export default function VideoGrid({
       micOn: true,
       camOn: true,
       handRaised: !!raisedHands[socketId],
+      isHost: socketId === adminSocketId || p.isAdmin,
+      canKick: isAdmin,
     })),
   ];
 
@@ -68,6 +75,7 @@ export default function VideoGrid({
             micOn={micOn}
             camOn={camOn}
             handRaised={localHandRaised}
+            isHost={isAdmin}
             variant="spotlight"
             onVideoRef={onLocalVideoRef}
             gestureOverlayProps={gestureOverlayProps}
@@ -86,6 +94,9 @@ export default function VideoGrid({
                 micOn={true}
                 camOn={true}
                 handRaised={!!raisedHands[socketId]}
+                isHost={socketId === adminSocketId || p.isAdmin}
+                canKick={isAdmin}
+                onKick={() => onKickParticipant?.(socketId)}
                 variant="tile"
               />
             ))}
@@ -123,6 +134,9 @@ export default function VideoGrid({
           micOn={p.micOn}
           camOn={p.camOn}
           handRaised={p.handRaised}
+          isHost={p.isHost}
+          canKick={p.canKick}
+          onKick={() => onKickParticipant?.(p.id)}
           variant="spotlight"
           onVideoRef={p.isLocal ? onLocalVideoRef : null}
           gestureOverlayProps={p.isLocal ? gestureOverlayProps : null}

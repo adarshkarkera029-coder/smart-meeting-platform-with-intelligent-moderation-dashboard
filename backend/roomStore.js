@@ -19,7 +19,9 @@ export function normalizeRoomId(roomId) {
 function createRoom(roomId) {
   return {
     roomId,
-    participants: new Map(), // socketId -> { socketId, name, joinedAt }
+    adminSocketId: null, // First person who joins becomes admin
+    gestureEnabled: true, // Controlled only by admin
+    participants: new Map(), // socketId -> { socketId, name, joinedAt, isAdmin }
     transcript: [],          // [{ id, speaker, text, ts }] raw transcript lines
     speakerPoints: new Map(),// speakerName -> [{ id, text, ts }] newest first
     summary: {
@@ -45,7 +47,12 @@ export function getRoom(roomId) {
 
 export function addParticipant(roomId, socketId, name) {
   const room = getOrCreateRoom(roomId);
-  room.participants.set(socketId, { socketId, name, joinedAt: Date.now() });
+  const isFirst = room.participants.size === 0 || !room.adminSocketId;
+  if (isFirst) {
+    room.adminSocketId = socketId;
+  }
+  const isAdmin = room.adminSocketId === socketId;
+  room.participants.set(socketId, { socketId, name, joinedAt: Date.now(), isAdmin });
   return room;
 }
 
@@ -53,7 +60,28 @@ export function removeParticipant(roomId, socketId) {
   const room = getRoom(roomId);
   if (!room) return null;
   room.participants.delete(socketId);
+  if (room.adminSocketId === socketId) {
+    const nextAdmin = room.participants.keys().next().value || null;
+    room.adminSocketId = nextAdmin;
+    if (nextAdmin) {
+      const p = room.participants.get(nextAdmin);
+      if (p) p.isAdmin = true;
+    }
+  }
   return room;
+}
+
+export function setRoomGesture(roomId, enabled) {
+  const room = getRoom(roomId);
+  if (room) {
+    room.gestureEnabled = !!enabled;
+  }
+  return room;
+}
+
+export function isRoomAdmin(roomId, socketId) {
+  const room = getRoom(roomId);
+  return room ? room.adminSocketId === socketId : false;
 }
 
 export function addTranscriptLine(roomId, speaker, text) {

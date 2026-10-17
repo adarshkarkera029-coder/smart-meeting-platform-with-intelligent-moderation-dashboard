@@ -91,14 +91,8 @@ export default function App() {
   );
 }
 
-const ROOM_A = ["nova", "lumen", "orbit", "pulse", "echo", "drift", "quartz", "ion", "aurora", "velvet"];
-const ROOM_B = ["room", "sync", "hub", "wave", "studio", "circle", "signal", "nest"];
-
 function makeRoomCode() {
-  const a = ROOM_A[Math.floor(Math.random() * ROOM_A.length)];
-  const b = ROOM_B[Math.floor(Math.random() * ROOM_B.length)];
-  const n = Math.floor(10 + Math.random() * 89);
-  return `${a}-${b}-${n}`;
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 function timeGreeting() {
@@ -234,7 +228,7 @@ function JoinScreen({ roomId, setRoomId, name, setName, onJoin }) {
             <input
               id="room-input"
               className="field-input"
-              placeholder="e.g. lumen-studio-42"
+              placeholder="e.g. 582914"
               value={roomId}
               onChange={(e) => setRoomId(e.target.value)}
               autoCapitalize="none"
@@ -382,6 +376,8 @@ function Meeting({ roomId, name, onLeave }) {
   const [camOn, setCamOn] = useState(true);
   const [handRaised, setHandRaised] = useState(false);
   const [raisedHands, setRaisedHands] = useState({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminSocketId, setAdminSocketId] = useState(null);
   const [screenSharing, setScreenSharing] = useState(false);
   const screenStreamRef = useRef(null);
   const [micStatus, setMicStatus] = useState("requesting");
@@ -404,7 +400,9 @@ function Meeting({ roomId, name, onLeave }) {
 
   const [chatMessages, setChatMessages] = useState([]);
   const [blockedMessage, setBlockedMessage] = useState(null);
-  const [activeTab, setActiveTab] = useState("summary");
+  const [activeTab, setActiveTab] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth <= 768 ? null : "summary"
+  );
   const [unreadChat, setUnreadChat] = useState(0);
 
   const activeTabRef = useRef(activeTab);
@@ -567,6 +565,26 @@ function Meeting({ roomId, name, onLeave }) {
       setMicOn(false);
     };
 
+    const onRole = ({ isAdmin: roleAdmin, adminSocketId: aId, gestureEnabled: gEnabled }) => {
+      setIsAdmin(!!roleAdmin);
+      if (aId) setAdminSocketId(aId);
+      if (typeof gEnabled === "boolean") setGestureEnabled(gEnabled);
+    };
+
+    const onAdminUpdated = ({ adminSocketId: aId }) => {
+      setAdminSocketId(aId);
+      setIsAdmin(socket.current?.id === aId);
+    };
+
+    const onGestureRoomState = ({ enabled }) => {
+      setGestureEnabled(enabled);
+    };
+
+    const onKicked = ({ reason }) => {
+      alert(reason || "You were removed from the meeting by the host.");
+      onLeave();
+    };
+
     s.on("dashboard:snapshot", onSnapshot);
     s.on("dashboard:point", onPoint);
     s.on("dashboard:point:token", onToken);
@@ -579,6 +597,10 @@ function Meeting({ roomId, name, onLeave }) {
     s.on("chat:blocked", onChatBlocked);
     s.on("hand:toggled", onHandToggled);
     s.on("room:mute-request", onMuteRequest);
+    s.on("room:role", onRole);
+    s.on("room:admin-updated", onAdminUpdated);
+    s.on("gesture:room-state", onGestureRoomState);
+    s.on("room:kicked", onKicked);
 
     return () => {
       s.off("dashboard:snapshot", onSnapshot);
@@ -593,8 +615,12 @@ function Meeting({ roomId, name, onLeave }) {
       s.off("chat:blocked", onChatBlocked);
       s.off("hand:toggled", onHandToggled);
       s.off("room:mute-request", onMuteRequest);
+      s.off("room:role", onRole);
+      s.off("room:admin-updated", onAdminUpdated);
+      s.off("gesture:room-state", onGestureRoomState);
+      s.off("room:kicked", onKicked);
     };
-  }, [socket, connected, localStream]);
+  }, [socket, connected, localStream, onLeave]);
 
   const sendChatMessage = (text) => {
     if (!text.trim()) return false;
@@ -630,6 +656,17 @@ function Meeting({ roomId, name, onLeave }) {
       return next;
     });
   }, [socket]);
+
+  const handleToggleGesture = useCallback((nextEnabled) => {
+    if (!isAdmin) return;
+    setGestureEnabled(nextEnabled);
+    socket.current?.emit("gesture:toggle-room", { enabled: nextEnabled });
+  }, [isAdmin, socket]);
+
+  const handleKickParticipant = useCallback((targetSocketId) => {
+    if (!isAdmin || !targetSocketId) return;
+    socket.current?.emit("room:kick-participant", { targetSocketId });
+  }, [isAdmin, socket]);
 
   const stopScreenShare = useCallback(() => {
     if (screenStreamRef.current) {
@@ -859,6 +896,9 @@ function Meeting({ roomId, name, onLeave }) {
               camOn={camOn}
               localHandRaised={handRaised}
               raisedHands={raisedHands}
+              isAdmin={isAdmin}
+              adminSocketId={adminSocketId}
+              onKickParticipant={handleKickParticipant}
               participants={participants}
               layoutMode={layoutMode}
               onLocalVideoRef={setLocalVideoEl}
@@ -879,7 +919,7 @@ function Meeting({ roomId, name, onLeave }) {
               open={gesturePanelOpen}
               onToggleOpen={() => setGesturePanelOpen((v) => !v)}
               gestureEnabled={gestureEnabled}
-              onToggleGesture={setGestureEnabled}
+              onToggleGesture={handleToggleGesture}
               safetyEnabled={safetyEnabled}
               onToggleSafety={setSafetyEnabled}
               debugMode={gestureDebug}
@@ -891,39 +931,52 @@ function Meeting({ roomId, name, onLeave }) {
               safetyNotice={gesture.safetyNotice}
               onReenableCamera={gesture.reenableCamera}
               onDismissNotice={gesture.clearSafetyNotice}
+              isAdmin={isAdmin}
             />
           </div>
 
-          <div className="right-panel">
-            <div className="right-panel-inner">
-              <div className="panel-tabs">
-                <button
-                  className={`panel-tab ${activeTab === "summary" ? "active" : ""}`}
-                  onClick={() => setActiveTab("summary")}
-                >
-                  <span className="panel-tab-icon">
-                    <svg viewBox="0 0 24 24" fill="none">
-                      <path d="M12 2a7 7 0 00-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 002 2h4a2 2 0 002-2v-2.26A7 7 0 0012 2z" stroke="currentColor" strokeWidth="1.5" />
-                      <path d="M9 21h6M12 17v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                      <circle cx="10" cy="10" r="1" fill="currentColor" />
-                      <circle cx="14" cy="10" r="1" fill="currentColor" />
+          {activeTab && (
+            <div className="right-panel">
+              <div className="right-panel-inner">
+                <div className="panel-tabs">
+                  <button
+                    className={`panel-tab ${activeTab === "summary" ? "active" : ""}`}
+                    onClick={() => setActiveTab("summary")}
+                  >
+                    <span className="panel-tab-icon">
+                      <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2a7 7 0 00-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 002 2h4a2 2 0 002-2v-2.26A7 7 0 0012 2z" stroke="currentColor" strokeWidth="1.5" />
+                        <path d="M9 21h6M12 17v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        <circle cx="10" cy="10" r="1" fill="currentColor" />
+                        <circle cx="14" cy="10" r="1" fill="currentColor" />
+                      </svg>
+                    </span>
+                    AI Summary
+                  </button>
+                  <button
+                    className={`panel-tab ${activeTab === "chat" ? "active" : ""}`}
+                    onClick={() => { setActiveTab("chat"); setUnreadChat(0); }}
+                  >
+                    <span className="panel-tab-icon">
+                      <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                    Chat
+                    {unreadChat > 0 && <span className="panel-tab-badge">{unreadChat}</span>}
+                  </button>
+                  <button
+                    type="button"
+                    className="panel-close-btn"
+                    onClick={() => setActiveTab(null)}
+                    title="Close panel"
+                    aria-label="Close panel"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                     </svg>
-                  </span>
-                  AI Summary
-                </button>
-                <button
-                  className={`panel-tab ${activeTab === "chat" ? "active" : ""}`}
-                  onClick={() => { setActiveTab("chat"); setUnreadChat(0); }}
-                >
-                  <span className="panel-tab-icon">
-                    <svg viewBox="0 0 24 24" fill="none">
-                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                  Chat
-                  {unreadChat > 0 && <span className="panel-tab-badge">{unreadChat}</span>}
-                </button>
-              </div>
+                  </button>
+                </div>
 
               {activeTab === "summary" ? (
                 <>
@@ -967,8 +1020,9 @@ function Meeting({ roomId, name, onLeave }) {
               )}
             </div>
           </div>
-        </div>
+        )}
       </div>
+    </div>
 
       <MicControls
         micOn={micOn}

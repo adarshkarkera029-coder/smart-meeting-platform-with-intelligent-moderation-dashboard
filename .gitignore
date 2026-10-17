@@ -7,3 +7,4 @@ __pycache__/
 deploy-tools/
 backend/python/logs/
 backend/python/venv/
+.DS_Store

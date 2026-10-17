@@ -280,8 +280,11 @@ function leaveCurrentRoom(io, socket, currentRoom) {
   const speakerName = socketNames.get(socket.id) || "Guest";
   finalizeSpeakerBuffer(io, currentRoom, speakerName);
   socket.leave(currentRoom);
-  removeParticipant(currentRoom, socket.id);
+  const updatedRoom = removeParticipant(currentRoom, socket.id);
   socket.to(currentRoom).emit("participant:left", { socketId: socket.id });
+  if (updatedRoom?.adminSocketId) {
+    io.to(currentRoom).emit("room:admin-updated", { adminSocketId: updatedRoom.adminSocketId });
+  }
   clearSessionHistory(`${currentRoom}:${speakerName}`);
 }
 
@@ -379,6 +382,15 @@ io.on("connection", (socket) => {
     socket.join(id);
 
     const room = addParticipant(id, socket.id, name || "Guest");
+    const isAdmin = room.adminSocketId === socket.id;
+
+    socket.emit("room:role", {
+      isAdmin,
+      adminSocketId: room.adminSocketId,
+      gestureEnabled: room.gestureEnabled !== false,
+    });
+
+    io.to(id).emit("room:admin-updated", { adminSocketId: room.adminSocketId });
 
     const others = Array.from(room.participants.values()).filter(
       (p) => p.socketId !== socket.id
@@ -388,6 +400,7 @@ io.on("connection", (socket) => {
     socket.to(id).emit("participant:joined", {
       socketId: socket.id,
       name: name || "Guest",
+      isAdmin,
     });
 
     socket.emit("dashboard:snapshot", dashboardSnapshot(id));
@@ -470,6 +483,28 @@ io.on("connection", (socket) => {
     socket.to(currentRoom).emit("room:mute-request", {
       by: senderName,
     });
+  });
+
+  // ---- Admin Gesture & Participant Kick Controls ----
+
+  socket.on("gesture:toggle-room", ({ enabled }) => {
+    if (!currentRoom) return;
+    const room = getRoom(currentRoom);
+    if (!room || room.adminSocketId !== socket.id) return; // Only admin can toggle
+    room.gestureEnabled = !!enabled;
+    io.to(currentRoom).emit("gesture:room-state", { enabled: !!enabled });
+  });
+
+  socket.on("room:kick-participant", ({ targetSocketId }) => {
+    if (!currentRoom || !targetSocketId || targetSocketId === socket.id) return;
+    const room = getRoom(currentRoom);
+    if (!room || room.adminSocketId !== socket.id) return; // Only admin can kick
+
+    const targetSocket = io.sockets.sockets.get(targetSocketId);
+    if (targetSocket) {
+      targetSocket.emit("room:kicked", { reason: "You were removed from the meeting by the host." });
+      leaveCurrentRoom(io, targetSocket, currentRoom);
+    }
   });
 
   // ---- Audio pipeline: speech:start -> audio:chunk -> speech:end ----
