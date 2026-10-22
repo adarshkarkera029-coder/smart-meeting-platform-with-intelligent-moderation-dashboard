@@ -19,6 +19,7 @@ import {
   addChatMessage,
   getChatHistory,
   normalizeRoomId,
+  setParticipantCam,
 } from "./roomStore.js";
 
 import { containsBadWord } from "./badWordFilter.js";
@@ -369,7 +370,7 @@ io.on("connection", (socket) => {
 
   // ---- Room membership / WebRTC signaling ----
 
-  socket.on("room:join", ({ roomId, name }) => {
+  socket.on("room:join", ({ roomId, name, camOn = true }) => {
     const id = normalizeRoomId(roomId);
     if (!id) return;
 
@@ -381,7 +382,7 @@ io.on("connection", (socket) => {
     socketNames.set(socket.id, name || "Guest");
     socket.join(id);
 
-    const room = addParticipant(id, socket.id, name || "Guest");
+    const room = addParticipant(id, socket.id, name || "Guest", camOn);
     const isAdmin = room.adminSocketId === socket.id;
 
     socket.emit("room:role", {
@@ -401,6 +402,7 @@ io.on("connection", (socket) => {
       socketId: socket.id,
       name: name || "Guest",
       isAdmin,
+      camOn: !!camOn,
     });
 
     socket.emit("dashboard:snapshot", dashboardSnapshot(id));
@@ -414,6 +416,15 @@ io.on("connection", (socket) => {
   socket.on("room:leave", () => {
     leaveCurrentRoom(io, socket, currentRoom);
     currentRoom = null;
+  });
+
+  socket.on("camera:toggle", ({ camOn }) => {
+    if (!currentRoom) return;
+    setParticipantCam(currentRoom, socket.id, camOn);
+    socket.to(currentRoom).emit("camera:toggled", {
+      socketId: socket.id,
+      camOn: !!camOn,
+    });
   });
 
   socket.on("signal:offer", ({ to, offer }) => {

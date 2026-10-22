@@ -416,9 +416,9 @@ function Meeting({ roomId, name, onLeave }) {
 
     const constraints = {
       video: {
-        width: { ideal: 640, max: 1280 },
-        height: { ideal: 480, max: 720 },
-        frameRate: { ideal: 24, max: 30 },
+        width: { ideal: 640, max: 854 },
+        height: { ideal: 360, max: 480 },
+        frameRate: { ideal: 24, max: 24 },
       },
       audio: {
         noiseSuppression: true,
@@ -640,14 +640,56 @@ function Meeting({ roomId, name, onLeave }) {
     setMicOn(next);
   }, [localStream, micOn]);
 
-  const toggleCam = useCallback(() => {
-    if (!localStream) return;
+  useEffect(() => {
+    socket.current?.emit("camera:toggle", { camOn });
+  }, [camOn, socket]);
+
+  const toggleCam = useCallback(async () => {
     const next = !camOn;
-    localStream.getVideoTracks().forEach((t) => {
-      t.enabled = next;
-    });
-    setCamOn(next);
-  }, [localStream, camOn]);
+    if (next) {
+      let videoTrack = localStream?.getVideoTracks().find((t) => t.readyState === "live");
+      if (!videoTrack) {
+        try {
+          const freshMedia = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 640, max: 854 },
+              height: { ideal: 360, max: 480 },
+              frameRate: { ideal: 24, max: 24 },
+            },
+          });
+          videoTrack = freshMedia.getVideoTracks()[0];
+          if (videoTrack) {
+            if (localStream) {
+              localStream.getVideoTracks().forEach((oldT) => {
+                try { oldT.stop(); } catch {}
+                try { localStream.removeTrack(oldT); } catch {}
+              });
+              localStream.addTrack(videoTrack);
+            } else {
+              setLocalStream(freshMedia);
+            }
+          }
+        } catch (err) {
+          console.warn("[Media] Failed to get camera video track", err);
+          alert("Could not access camera. Please check camera device permissions.");
+          return;
+        }
+      }
+
+      if (videoTrack) {
+        videoTrack.enabled = true;
+        await replaceVideoTrack(videoTrack);
+      }
+      setCamOn(true);
+      socket.current?.emit("camera:toggle", { camOn: true });
+    } else {
+      localStream?.getVideoTracks().forEach((t) => {
+        t.enabled = false;
+      });
+      setCamOn(false);
+      socket.current?.emit("camera:toggle", { camOn: false });
+    }
+  }, [localStream, camOn, replaceVideoTrack, socket]);
 
   const toggleHand = useCallback(() => {
     setHandRaised((prev) => {

@@ -43,7 +43,7 @@ export default function VideoGrid({
       speaking: p.speaking,
       level: p.speaking ? 0.6 : 0,
       micOn: true,
-      camOn: true,
+      camOn: p.camOn !== false,
       handRaised: !!raisedHands[socketId],
       isHost: socketId === adminSocketId || p.isAdmin,
       canKick: isAdmin,
@@ -92,7 +92,7 @@ export default function VideoGrid({
                 speaking={p.speaking}
                 level={p.speaking ? 0.6 : 0}
                 micOn={true}
-                camOn={true}
+                camOn={p.camOn !== false}
                 handRaised={!!raisedHands[socketId]}
                 isHost={socketId === adminSocketId || p.isAdmin}
                 canKick={isAdmin}

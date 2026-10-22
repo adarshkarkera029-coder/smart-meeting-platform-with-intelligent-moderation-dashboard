@@ -45,15 +45,23 @@ export function getRoom(roomId) {
   return rooms.get(roomId) || null;
 }
 
-export function addParticipant(roomId, socketId, name) {
+export function addParticipant(roomId, socketId, name, camOn = true) {
   const room = getOrCreateRoom(roomId);
   const isFirst = room.participants.size === 0 || !room.adminSocketId;
   if (isFirst) {
     room.adminSocketId = socketId;
   }
   const isAdmin = room.adminSocketId === socketId;
-  room.participants.set(socketId, { socketId, name, joinedAt: Date.now(), isAdmin });
+  room.participants.set(socketId, { socketId, name, joinedAt: Date.now(), isAdmin, camOn: !!camOn });
   return room;
+}
+
+export function setParticipantCam(roomId, socketId, camOn) {
+  const room = getRoom(roomId);
+  if (!room) return null;
+  const p = room.participants.get(socketId);
+  if (p) p.camOn = !!camOn;
+  return p;
 }
 
 export function removeParticipant(roomId, socketId) {

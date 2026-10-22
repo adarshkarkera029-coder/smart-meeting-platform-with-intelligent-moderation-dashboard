@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Waveform from "./Waveform.jsx";
 import GestureOverlay from "./GestureOverlay.jsx";
 
@@ -30,11 +30,51 @@ export default function VideoTile({
   gestureOverlayProps = null,
 }) {
   const videoRef = useRef(null);
+  const [hasStreamVideo, setHasStreamVideo] = useState(() => {
+    if (!stream) return false;
+    return stream.getVideoTracks().some((t) => t.readyState !== "ended");
+  });
 
-  const trackEnabled =
+  // Track stream additions and video track status reactively
+  useEffect(() => {
+    if (!stream) {
+      setHasStreamVideo(false);
+      return;
+    }
+
+    const updateTrackStatus = () => {
+      const vTracks = stream.getVideoTracks();
+      const hasLive = vTracks.some((t) => t.readyState !== "ended");
+      setHasStreamVideo(hasLive);
+    };
+
+    updateTrackStatus();
+
+    stream.addEventListener("addtrack", updateTrackStatus);
+    stream.addEventListener("removetrack", updateTrackStatus);
+
+    const tracks = stream.getVideoTracks();
+    tracks.forEach((t) => {
+      t.addEventListener("mute", updateTrackStatus);
+      t.addEventListener("unmute", updateTrackStatus);
+      t.addEventListener("ended", updateTrackStatus);
+    });
+
+    return () => {
+      stream.removeEventListener("addtrack", updateTrackStatus);
+      stream.removeEventListener("removetrack", updateTrackStatus);
+      tracks.forEach((t) => {
+        t.removeEventListener("mute", updateTrackStatus);
+        t.removeEventListener("unmute", updateTrackStatus);
+        t.removeEventListener("ended", updateTrackStatus);
+      });
+    };
+  }, [stream]);
+
+  const localTrackLive =
     !!stream &&
-    stream.getVideoTracks().some((t) => t.enabled && t.readyState !== "ended");
-  const hasVideo = isLocal ? camOn && trackEnabled : trackEnabled;
+    stream.getVideoTracks().some((t) => t.enabled && t.readyState === "live");
+  const hasVideo = isLocal ? camOn && localTrackLive : camOn && hasStreamVideo;
 
   useEffect(() => {
     if (!isLocal || !onVideoRef) return;
@@ -51,29 +91,21 @@ export default function VideoTile({
     }
 
     const tryPlay = () => {
-      const p = video.play();
-      if (p && typeof p.catch === "function") p.catch(() => {});
+      if (video.paused) {
+        const p = video.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      }
     };
 
     tryPlay();
     video.addEventListener("loadedmetadata", tryPlay);
+    video.addEventListener("canplay", tryPlay);
 
     return () => {
       video.removeEventListener("loadedmetadata", tryPlay);
+      video.removeEventListener("canplay", tryPlay);
     };
-  }, [stream]);
-
-  // When camera is turned back on, resume the still-mounted <video>
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !stream || !hasVideo) return;
-
-    if (video.srcObject !== stream) {
-      video.srcObject = stream;
-    }
-    const p = video.play();
-    if (p && typeof p.catch === "function") p.catch(() => {});
-  }, [hasVideo, stream, camOn]);
+  }, [stream, hasVideo]);
 
   const isSpotlight = variant === "spotlight";
 

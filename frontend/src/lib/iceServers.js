@@ -8,6 +8,7 @@ export function getIceServers() {
       "stun:stun.l.google.com:19302",
       "stun:stun1.l.google.com:19302",
       "stun:stun2.l.google.com:19302",
+      "stun:stun.cloudflare.com:3478",
     ],
   };
 
@@ -35,8 +36,6 @@ export function getIceServers() {
       urls: [
         "turn:openrelay.metered.ca:80",
         "turn:openrelay.metered.ca:443",
-        "turn:openrelay.metered.ca:443?transport=tcp",
-        "turns:openrelay.metered.ca:443",
       ],
       username: "openrelayproject",
       credential: "openrelayproject",
