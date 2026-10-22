@@ -25,6 +25,9 @@ export default function VideoTile({
   canKick = false,
   onKick = null,
   variant = "tile",
+  isFocused = false,
+  onUnfocus = null,
+  onClick = null,
   /** Callback so parent can attach MediaPipe to the same <video> element */
   onVideoRef = null,
   gestureOverlayProps = null,
@@ -110,8 +113,44 @@ export default function VideoTile({
   const isSpotlight = variant === "spotlight";
 
   return (
-    <div className={`video-tile ${variant} ${speaking ? "speaking" : ""} ${!hasVideo ? "no-video" : ""}`}>
+    <div
+      className={`video-tile ${variant} ${speaking ? "speaking" : ""} ${!hasVideo ? "no-video" : ""} ${isFocused ? "is-focused" : ""} ${onClick ? "clickable" : ""}`}
+      onClick={(e) => {
+        if (onClick) onClick(e);
+      }}
+    >
       <span className="tile-halo" aria-hidden="true" />
+
+      {isFocused && (
+        <div className="tile-focus-bar">
+          <span className="tile-focus-badge">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+            Focused
+          </span>
+          {onUnfocus && (
+            <button
+              type="button"
+              className="tile-unfocus-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onUnfocus();
+              }}
+              title="Return to grid view"
+              aria-label="Return to grid view"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="3" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
+                <rect x="14" y="3" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
+                <rect x="14" y="14" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
+              </svg>
+              <span>Grid</span>
+            </button>
+          )}
+        </div>
+      )}
       {/* Keep <video> mounted so cam off/on does not lose the stream binding */}
       <video
         ref={videoRef}

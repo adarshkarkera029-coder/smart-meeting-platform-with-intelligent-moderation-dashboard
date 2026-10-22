@@ -943,6 +943,7 @@ function Meeting({ roomId, name, onLeave }) {
               onKickParticipant={handleKickParticipant}
               participants={participants}
               layoutMode={layoutMode}
+              onLayoutModeChange={setLayoutMode}
               onLocalVideoRef={setLocalVideoEl}
               gestureOverlayProps={
                 gestureEnabled && gesture.status === "ready"

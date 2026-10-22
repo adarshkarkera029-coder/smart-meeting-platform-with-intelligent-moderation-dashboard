@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import VideoTile from "./VideoTile.jsx";
 
 export default function VideoGrid({
@@ -15,12 +15,13 @@ export default function VideoGrid({
   onKickParticipant = null,
   participants,
   layoutMode = "grid",
+  onLayoutModeChange = null,
   onLocalVideoRef = null,
   gestureOverlayProps = null,
 }) {
+  const [focusedId, setFocusedId] = useState(null);
   const remoteEntries = Object.entries(participants);
 
-  // -- GRID MODE LOGIC --
   const allParticipants = [
     {
       id: "local",
@@ -51,78 +52,103 @@ export default function VideoGrid({
   ];
 
   const count = allParticipants.length;
-  let gridTemplateColumns = "1fr";
-  if (count === 2) {
-    gridTemplateColumns = "1fr 1fr";
-  } else if (count > 2) {
-    gridTemplateColumns = "repeat(auto-fit, minmax(300px, 1fr))";
+
+  // Active spotlight state
+  const isSpotlight = layoutMode === "spotlight" || Boolean(focusedId);
+
+  let focusedParticipant = null;
+  if (isSpotlight) {
+    if (focusedId) {
+      focusedParticipant = allParticipants.find((p) => p.id === focusedId);
+    }
+    // Fallback: spotlight the first remote participant if available, else local
+    if (!focusedParticipant) {
+      focusedParticipant = allParticipants.find((p) => !p.isLocal) || allParticipants[0];
+    }
   }
 
-  // -- SPOTLIGHT MODE LOGIC --
-  const visibleRemotes = remoteEntries.slice(0, 3);
-  const moreCount = remoteEntries.length - visibleRemotes.length;
+  const handleTileClick = (pId) => {
+    setFocusedId(pId);
+    onLayoutModeChange?.("spotlight");
+  };
 
-  if (layoutMode === "spotlight") {
+  const handleUnfocus = () => {
+    setFocusedId(null);
+    onLayoutModeChange?.("grid");
+  };
+
+  // -------------------------------------------------------------
+  // SPOTLIGHT / FOCUS MODE VIEW
+  // -------------------------------------------------------------
+  if (isSpotlight && focusedParticipant) {
     return (
-      <div className="video-layout" style={{ display: "flex", flexDirection: "column" }}>
-        <div className="spotlight-wrapper">
+      <div className="video-layout video-layout-spotlight">
+        <div className="spotlight-main">
           <VideoTile
-            name={localName}
-            stream={localStream}
-            isLocal
-            speaking={localSpeaking}
-            level={localLevel}
-            micOn={micOn}
-            camOn={camOn}
-            handRaised={localHandRaised}
-            isHost={isAdmin}
+            key={focusedParticipant.id}
+            name={focusedParticipant.name}
+            stream={focusedParticipant.stream}
+            isLocal={focusedParticipant.isLocal}
+            speaking={focusedParticipant.speaking}
+            level={focusedParticipant.level}
+            micOn={focusedParticipant.micOn}
+            camOn={focusedParticipant.camOn}
+            handRaised={focusedParticipant.handRaised}
+            isHost={focusedParticipant.isHost}
+            canKick={focusedParticipant.canKick}
+            onKick={() => onKickParticipant?.(focusedParticipant.id)}
             variant="spotlight"
-            onVideoRef={onLocalVideoRef}
-            gestureOverlayProps={gestureOverlayProps}
+            isFocused={true}
+            onUnfocus={handleUnfocus}
+            onVideoRef={focusedParticipant.isLocal ? onLocalVideoRef : null}
+            gestureOverlayProps={focusedParticipant.isLocal ? gestureOverlayProps : null}
           />
         </div>
 
-        {remoteEntries.length > 0 && (
-          <div className="participants-row">
-            {visibleRemotes.map(([socketId, p]) => (
-              <VideoTile
-                key={socketId}
-                name={p.name}
-                stream={p.stream}
-                speaking={p.speaking}
-                level={p.speaking ? 0.6 : 0}
-                micOn={true}
-                camOn={p.camOn !== false}
-                handRaised={!!raisedHands[socketId]}
-                isHost={socketId === adminSocketId || p.isAdmin}
-                canKick={isAdmin}
-                onKick={() => onKickParticipant?.(socketId)}
-                variant="tile"
-              />
-            ))}
-            {moreCount > 0 && (
-              <div className="participant-more">
-                <span className="more-dots">••</span>
-                <span className="more-count">+ {moreCount} more</span>
-              </div>
-            )}
+        {allParticipants.length > 1 && (
+          <div className="participants-strip" role="region" aria-label="Meeting participants">
+            {allParticipants.map((p) => {
+              const isSelected = p.id === focusedParticipant.id;
+              return (
+                <div
+                  key={p.id}
+                  className={`strip-item ${isSelected ? "active" : ""}`}
+                  onClick={() => setFocusedId(p.id)}
+                  title={`Click to focus ${p.name}${p.isLocal ? " (You)" : ""}`}
+                >
+                  <VideoTile
+                    name={p.name}
+                    stream={p.stream}
+                    isLocal={p.isLocal}
+                    speaking={p.speaking}
+                    level={p.level}
+                    micOn={p.micOn}
+                    camOn={p.camOn}
+                    handRaised={p.handRaised}
+                    isHost={p.isHost}
+                    variant="tile"
+                    onVideoRef={p.isLocal && isSelected ? null : (p.isLocal ? onLocalVideoRef : null)}
+                  />
+                  {isSelected && (
+                    <span className="strip-item-indicator">Viewing</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
     );
   }
 
+  // -------------------------------------------------------------
+  // FULL GRID MODE VIEW
+  // -------------------------------------------------------------
+  const gridCountClass =
+    count <= 1 ? "1" : count === 2 ? "2" : count === 3 ? "3" : count === 4 ? "4" : count <= 6 ? "6" : "many";
+
   return (
-    <div
-      className="video-layout"
-      style={{
-        display: "grid",
-        gridTemplateColumns,
-        gap: "12px",
-        flex: 1,
-        minHeight: 0,
-      }}
-    >
+    <div className={`video-layout video-layout-grid count-${gridCountClass}`}>
       {allParticipants.map((p) => (
         <VideoTile
           key={p.id}
@@ -137,7 +163,8 @@ export default function VideoGrid({
           isHost={p.isHost}
           canKick={p.canKick}
           onKick={() => onKickParticipant?.(p.id)}
-          variant="spotlight"
+          variant="tile"
+          onClick={() => handleTileClick(p.id)}
           onVideoRef={p.isLocal ? onLocalVideoRef : null}
           gestureOverlayProps={p.isLocal ? gestureOverlayProps : null}
         />
