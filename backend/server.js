@@ -281,9 +281,12 @@ function leaveCurrentRoom(io, socket, currentRoom) {
   const speakerName = socketNames.get(socket.id) || "Guest";
   finalizeSpeakerBuffer(io, currentRoom, speakerName);
   socket.leave(currentRoom);
-  const updatedRoom = removeParticipant(currentRoom, socket.id);
+  const { room: updatedRoom, wasAdmin } = removeParticipant(currentRoom, socket.id);
   socket.to(currentRoom).emit("participant:left", { socketId: socket.id });
-  if (updatedRoom?.adminSocketId) {
+  if (wasAdmin) {
+    socket.to(currentRoom).emit("room:admin-left", { adminName: speakerName });
+    io.to(currentRoom).emit("room:admin-updated", { adminSocketId: null });
+  } else if (updatedRoom?.adminSocketId) {
     io.to(currentRoom).emit("room:admin-updated", { adminSocketId: updatedRoom.adminSocketId });
   }
   clearSessionHistory(`${currentRoom}:${speakerName}`);

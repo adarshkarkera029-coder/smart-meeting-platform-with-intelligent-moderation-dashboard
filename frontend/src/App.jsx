@@ -378,6 +378,7 @@ function Meeting({ roomId, name, onLeave }) {
   const [raisedHands, setRaisedHands] = useState({});
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminSocketId, setAdminSocketId] = useState(null);
+  const [adminLeftNotice, setAdminLeftNotice] = useState(null);
   const [screenSharing, setScreenSharing] = useState(false);
   const screenStreamRef = useRef(null);
   const [micStatus, setMicStatus] = useState("requesting");
@@ -580,6 +581,10 @@ function Meeting({ roomId, name, onLeave }) {
       setGestureEnabled(enabled);
     };
 
+    const onAdminLeft = ({ adminName }) => {
+      setAdminLeftNotice({ adminName: adminName || "Meeting Host" });
+    };
+
     const onKicked = ({ reason }) => {
       alert(reason || "You were removed from the meeting by the host.");
       onLeave();
@@ -599,6 +604,7 @@ function Meeting({ roomId, name, onLeave }) {
     s.on("room:mute-request", onMuteRequest);
     s.on("room:role", onRole);
     s.on("room:admin-updated", onAdminUpdated);
+    s.on("room:admin-left", onAdminLeft);
     s.on("gesture:room-state", onGestureRoomState);
     s.on("room:kicked", onKicked);
 
@@ -617,6 +623,7 @@ function Meeting({ roomId, name, onLeave }) {
       s.off("room:mute-request", onMuteRequest);
       s.off("room:role", onRole);
       s.off("room:admin-updated", onAdminUpdated);
+      s.off("room:admin-left", onAdminLeft);
       s.off("gesture:room-state", onGestureRoomState);
       s.off("room:kicked", onKicked);
     };
@@ -1107,6 +1114,44 @@ function Meeting({ roomId, name, onLeave }) {
           defaultEmail={user?.email || ""}
           onClose={() => setShowMail(false)}
         />
+      )}
+
+      {adminLeftNotice && (
+        <div className="admin-left-backdrop" role="dialog" aria-modal="true">
+          <div className="admin-left-card">
+            <div className="admin-left-icon-badge">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="8.5" cy="7" r="4" stroke="currentColor" strokeWidth="2"/>
+                <path d="M17 9l5 5m0-5l-5 5" stroke="#ef4444" strokeWidth="2.4" strokeLinecap="round"/>
+              </svg>
+            </div>
+            <h3 className="admin-left-title">Host Left the Meeting</h3>
+            <p className="admin-left-desc">
+              <strong>{adminLeftNotice.adminName}</strong> (the meeting host) has left the room.
+              Would you like to end the meeting or continue staying in the call?
+            </p>
+            <div className="admin-left-actions">
+              <button
+                type="button"
+                className="admin-left-btn danger"
+                onClick={() => {
+                  setAdminLeftNotice(null);
+                  onLeave();
+                }}
+              >
+                End Meeting
+              </button>
+              <button
+                type="button"
+                className="admin-left-btn primary"
+                onClick={() => setAdminLeftNotice(null)}
+              >
+                Stay in Meeting
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

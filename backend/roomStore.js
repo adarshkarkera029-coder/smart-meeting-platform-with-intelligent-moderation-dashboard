@@ -20,6 +20,7 @@ function createRoom(roomId) {
   return {
     roomId,
     adminSocketId: null, // First person who joins becomes admin
+    firstAdminAssigned: false, // Only the first person who enters becomes admin
     gestureEnabled: true, // Controlled only by admin
     participants: new Map(), // socketId -> { socketId, name, joinedAt, isAdmin }
     transcript: [],          // [{ id, speaker, text, ts }] raw transcript lines
@@ -47,11 +48,14 @@ export function getRoom(roomId) {
 
 export function addParticipant(roomId, socketId, name, camOn = true) {
   const room = getOrCreateRoom(roomId);
-  const isFirst = room.participants.size === 0 || !room.adminSocketId;
-  if (isFirst) {
+  let isAdmin = false;
+  if (!room.firstAdminAssigned) {
     room.adminSocketId = socketId;
+    room.firstAdminAssigned = true;
+    isAdmin = true;
+  } else {
+    isAdmin = room.adminSocketId === socketId;
   }
-  const isAdmin = room.adminSocketId === socketId;
   room.participants.set(socketId, { socketId, name, joinedAt: Date.now(), isAdmin, camOn: !!camOn });
   return room;
 }
@@ -66,17 +70,14 @@ export function setParticipantCam(roomId, socketId, camOn) {
 
 export function removeParticipant(roomId, socketId) {
   const room = getRoom(roomId);
-  if (!room) return null;
+  if (!room) return { room: null, wasAdmin: false };
+  const wasAdmin = room.adminSocketId === socketId;
   room.participants.delete(socketId);
-  if (room.adminSocketId === socketId) {
-    const nextAdmin = room.participants.keys().next().value || null;
-    room.adminSocketId = nextAdmin;
-    if (nextAdmin) {
-      const p = room.participants.get(nextAdmin);
-      if (p) p.isAdmin = true;
-    }
+  if (wasAdmin) {
+    // Admin was the first person only. If admin leaves, do not transfer admin to anyone else.
+    room.adminSocketId = null;
   }
-  return room;
+  return { room, wasAdmin };
 }
 
 export function setRoomGesture(roomId, enabled) {

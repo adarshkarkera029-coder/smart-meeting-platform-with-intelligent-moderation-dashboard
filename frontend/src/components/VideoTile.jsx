@@ -27,7 +27,10 @@ export default function VideoTile({
   variant = "tile",
   isFocused = false,
   onUnfocus = null,
+  onFullscreen = null,
   onClick = null,
+  fitMode = null,
+  isFullscreen = false,
   /** Callback so parent can attach MediaPipe to the same <video> element */
   onVideoRef = null,
   gestureOverlayProps = null,
@@ -114,9 +117,15 @@ export default function VideoTile({
 
   return (
     <div
-      className={`video-tile ${variant} ${speaking ? "speaking" : ""} ${!hasVideo ? "no-video" : ""} ${isFocused ? "is-focused" : ""} ${onClick ? "clickable" : ""}`}
+      className={`video-tile ${variant} ${speaking ? "speaking" : ""} ${!hasVideo ? "no-video" : ""} ${isFocused ? "is-focused" : ""} ${isFullscreen ? "is-fullscreen" : ""} ${onClick ? "clickable" : ""}`}
       onClick={(e) => {
         if (onClick) onClick(e);
+      }}
+      onDoubleClick={(e) => {
+        if (onFullscreen) {
+          e.stopPropagation();
+          onFullscreen();
+        }
       }}
     >
       <span className="tile-halo" aria-hidden="true" />
@@ -129,26 +138,45 @@ export default function VideoTile({
             </svg>
             Focused
           </span>
-          {onUnfocus && (
-            <button
-              type="button"
-              className="tile-unfocus-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onUnfocus();
-              }}
-              title="Return to grid view"
-              aria-label="Return to grid view"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                <rect x="3" y="3" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
-                <rect x="14" y="3" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
-                <rect x="14" y="14" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
-                <rect x="3" y="14" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
-              </svg>
-              <span>Grid</span>
-            </button>
-          )}
+          <div className="tile-focus-actions">
+            {onFullscreen && (
+              <button
+                type="button"
+                className="tile-focus-action-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFullscreen();
+                }}
+                title="View full screen"
+                aria-label="View full screen"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                </svg>
+                <span>Full Screen</span>
+              </button>
+            )}
+            {onUnfocus && (
+              <button
+                type="button"
+                className="tile-unfocus-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUnfocus();
+                }}
+                title="Return to grid view"
+                aria-label="Return to grid view"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="3" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
+                  <rect x="14" y="3" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
+                  <rect x="14" y="14" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
+                  <rect x="3" y="14" width="7" height="7" stroke="currentColor" strokeWidth="2" rx="1"/>
+                </svg>
+                <span>Grid</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
       {/* Keep <video> mounted so cam off/on does not lose the stream binding */}
@@ -158,7 +186,10 @@ export default function VideoTile({
         playsInline
         muted={muted || isLocal}
         className={isLocal ? "is-local-preview" : undefined}
-        style={{ display: hasVideo ? "block" : "none" }}
+        style={{
+          display: hasVideo ? "block" : "none",
+          objectFit: fitMode || (variant === "spotlight" || isFullscreen ? "contain" : "cover"),
+        }}
       />
       {!hasVideo && (
         <div className="avatar-fallback">
@@ -187,6 +218,22 @@ export default function VideoTile({
             <span className="tile-mic-icon muted">
               <MicOffIcon />
             </span>
+          )}
+          {onFullscreen && (
+            <button
+              type="button"
+              className="tile-fullscreen-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFullscreen();
+              }}
+              title={`View ${name} full screen`}
+              aria-label={`View ${name} full screen`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+              </svg>
+            </button>
           )}
           {!isLocal && canKick && onKick && (
             <button

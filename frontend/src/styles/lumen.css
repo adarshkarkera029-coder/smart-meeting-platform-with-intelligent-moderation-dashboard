@@ -2349,4 +2349,455 @@ html[data-theme="light"] .tile-unfocus-btn:hover {
   border-color: transparent;
 }
 
+/* ================================================================== */
+/* Immersive Full Screen Presentation Mode                            */
+/* ================================================================== */
+.video-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  z-index: 99999;
+  background: #08090f;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.fullscreen-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: linear-gradient(180deg, rgba(8, 9, 15, 0.9) 0%, rgba(8, 9, 15, 0.4) 70%, transparent 100%);
+  backdrop-filter: blur(12px);
+  z-index: 30;
+  pointer-events: auto;
+}
+
+.fullscreen-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fullscreen-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: all 0.15s ease;
+}
+
+.fullscreen-back-btn:hover {
+  background: rgba(255, 255, 255, 0.24);
+  transform: translateX(-2px);
+}
+
+.fullscreen-user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 6px 12px;
+  border-radius: 9999px;
+  color: #f4f4f5;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fullscreen-live-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 10px #10b981;
+  animation: pulseLive 1.8s infinite;
+}
+
+@keyframes pulseLive {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.fullscreen-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fullscreen-fit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fullscreen-fit-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.fullscreen-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f4f5;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fullscreen-close-btn:hover {
+  background: #ef4444;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.fullscreen-body {
+  flex: 1 1 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.fullscreen-body .video-tile {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background: #000000 !important;
+}
+
+.fullscreen-body .video-tile video {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.fullscreen-bottom-strip {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 100px;
+  padding: 10px 16px;
+  background: linear-gradient(0deg, rgba(8, 9, 15, 0.95) 0%, rgba(8, 9, 15, 0.5) 75%, transparent 100%);
+  backdrop-filter: blur(14px);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.fullscreen-strip-scroller {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.fullscreen-strip-scroller .strip-item {
+  width: 120px;
+  min-width: 120px;
+  height: 72px;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  border: 2px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.fullscreen-strip-scroller .strip-item.active {
+  border-color: #7cffd4;
+  box-shadow: 0 0 14px rgba(124, 255, 212, 0.4);
+}
+
+@media (max-width: 768px) {
+  .fullscreen-topbar {
+    padding: calc(env(safe-area-inset-top, 8px) + 6px) 12px 6px;
+    height: auto;
+  }
+  .fullscreen-back-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  .fullscreen-user-badge {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  .fullscreen-fit-btn {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  .fullscreen-close-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+  .fullscreen-bottom-strip {
+    height: 80px;
+    padding: 6px 10px calc(env(safe-area-inset-bottom, 8px) + 6px);
+  }
+  .fullscreen-strip-scroller .strip-item {
+    width: 90px;
+    min-width: 90px;
+    height: 56px;
+  }
+}
+
+/* Tile Action Buttons (Fullscreen & Focus) */
+.tile-focus-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.tile-focus-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(18, 18, 28, 0.85);
+  color: #f4f4f5;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  backdrop-filter: blur(10px);
+}
+
+.tile-focus-action-btn:hover {
+  background: rgba(124, 255, 212, 0.25);
+  border-color: #7cffd4;
+  color: #ffffff;
+}
+
+.tile-fullscreen-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #d4d4d8;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.tile-fullscreen-btn:hover {
+  background: rgba(124, 255, 212, 0.25);
+  color: #ffffff;
+  border-color: #7cffd4;
+  transform: scale(1.08);
+}
+
+/* ================================================================== */
+/* Admin Left Dialog Modal                                            */
+/* ================================================================== */
+.admin-left-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: rgba(7, 8, 14, 0.78);
+  backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.admin-left-card {
+  width: 100%;
+  max-width: 440px;
+  background: #151620;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  padding: 28px 24px 22px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.admin-left-icon-badge {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f87171;
+  margin-bottom: 18px;
+}
+
+.admin-left-title {
+  font-size: 19px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0 0 10px;
+  letter-spacing: -0.01em;
+}
+
+.admin-left-desc {
+  font-size: 14px;
+  line-height: 1.55;
+  color: #a1a1aa;
+  margin: 0 0 24px;
+}
+
+.admin-left-desc strong {
+  color: #f4f4f5;
+}
+
+.admin-left-actions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.admin-left-btn {
+  flex: 1;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.admin-left-btn.danger {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.admin-left-btn.danger:hover {
+  background: #ef4444;
+  color: #ffffff;
+  border-color: transparent;
+  transform: translateY(-1px);
+}
+
+.admin-left-btn.primary {
+  background: #0f766e;
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(15, 118, 110, 0.35);
+}
+
+.admin-left-btn.primary:hover {
+  background: #14b8a6;
+  transform: translateY(-1px);
+}
+
+html[data-theme="light"] .admin-left-card {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+}
+
+html[data-theme="light"] .admin-left-title {
+  color: #18181b;
+}
+
+html[data-theme="light"] .admin-left-desc {
+  color: #52525b;
+}
+
+html[data-theme="light"] .admin-left-desc strong {
+  color: #18181b;
+}
+
+html[data-theme="light"] .admin-left-btn.danger {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+html[data-theme="light"] .admin-left-btn.danger:hover {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+html[data-theme="light"] .tile-focus-action-btn {
+  background: #ffffff;
+  color: #18181b;
+  border-color: #d4d4d8;
+}
+
+html[data-theme="light"] .tile-focus-action-btn:hover {
+  background: #f0fdfa;
+  border-color: #0f766e;
+  color: #0f766e;
+}
+
+html[data-theme="light"] .tile-fullscreen-btn {
+  background: #f4f4f5;
+  color: #3f3f46;
+  border-color: #d4d4d8;
+}
+
+html[data-theme="light"] .tile-fullscreen-btn:hover {
+  background: #0f766e;
+  color: #ffffff;
+  border-color: #0f766e;
+}
+
 
