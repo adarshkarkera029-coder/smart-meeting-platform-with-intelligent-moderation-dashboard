@@ -58,7 +58,14 @@ export default function MailModal({ roomId, summary, sentBy, defaultEmail = "", 
     }
   };
 
-  const bulletCount = summary?.bullets?.length || 0;
+  const bullets = Array.isArray(summary)
+    ? summary
+    : Array.isArray(summary?.bullets)
+    ? summary.bullets
+    : summary?.bullets
+    ? [String(summary.bullets)]
+    : [];
+  const bulletCount = bullets.filter((b) => typeof b === "string" && b.trim().length > 0).length;
 
   return (
     <div className="invite-overlay" ref={overlayRef} onClick={handleOverlayClick}>

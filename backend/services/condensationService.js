@@ -27,9 +27,19 @@ import { z } from "zod";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const GEMINI_API_KEY_TEXT =
-  process.env.GEMINI_API_KEY_TEXT || process.env.GEMINI_API_KEY_VOICE;
-const GEMINI_TEXT_MODEL   = process.env.GEMINI_TEXT_MODEL || "gemini-3.1-flash-lite";
+function getTextApiKey() {
+  const key =
+    process.env.GEMINI_API_KEY_TEXT ||
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.GEMINI_API_KEY_VOICE ||
+    "";
+  return String(key).trim().replace(/^["']|["']$/g, "");
+}
+
+function getTextModel() {
+  return (process.env.GEMINI_TEXT_MODEL || "gemini-3.1-flash-lite").trim();
+}
 
 /**
  * Maximum "token budget" for history messages before trimming.
@@ -123,10 +133,11 @@ Use the conversation history below to maintain continuity — avoid repeating th
 // ── Shared helpers ───────────────────────────────────────────────────────────
 
 function buildModel() {
-  if (!GEMINI_API_KEY_TEXT) throw new Error("GEMINI_API_KEY_TEXT is not set");
+  const apiKey = getTextApiKey();
+  if (!apiKey) throw new Error("GEMINI_API_KEY_TEXT is not set");
   return new ChatGoogleGenerativeAI({
-    model: GEMINI_TEXT_MODEL,
-    apiKey: GEMINI_API_KEY_TEXT,
+    model: getTextModel(),
+    apiKey: apiKey,
     temperature: 0,
     json: true, // enforce JSON mode output
   });

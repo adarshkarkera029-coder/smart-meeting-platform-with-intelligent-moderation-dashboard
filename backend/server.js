@@ -36,7 +36,8 @@ import { sendMeetingSummaryEmail, emailStatus } from "./services/emailService.js
 
 const PORT = process.env.PORT || 4000;
 /** How many new transcript lines before refreshing the rolling summary. */
-const SUMMARY_EVERY_N_LINES = parseInt(process.env.SUMMARY_EVERY_N_LINES || "1", 10);
+const getSummaryCadence = () =>
+  Math.max(1, parseInt(process.env.SUMMARY_EVERY_N_LINES || "1", 10) || 1);
 
 /** Avoid stacking summary API calls when STT is busy. */
 const summaryInFlight = new Set();
@@ -223,12 +224,13 @@ const io = new Server(server, {
   },
 });
 
-function maybeRefreshSummary(io, roomId) {
+function maybeRefreshSummary(io, roomId, force = false) {
   const id = normalizeRoomId(roomId);
   const room = getRoom(id);
+  const cadence = getSummaryCadence();
   if (
     !room ||
-    room.summary.linesSinceLastSummary < SUMMARY_EVERY_N_LINES ||
+    (!force && room.summary.linesSinceLastSummary < cadence) ||
     summaryInFlight.has(id)
   ) {
     return;
@@ -236,17 +238,19 @@ function maybeRefreshSummary(io, roomId) {
 
   const transcriptSnapshot = room.transcript.slice();
   const snapshotLen = transcriptSnapshot.length;
+  if (!snapshotLen) return;
+
   summaryInFlight.add(id);
   console.log(
-    `[summary] room=${id} lines=${snapshotLen} since=${room.summary.linesSinceLastSummary}`
+    `[summary] room=${id} lines=${snapshotLen} since=${room.summary.linesSinceLastSummary} force=${force}`
   );
 
   summarizeMeeting(transcriptSnapshot)
     .then((bullets) => {
-      if (!bullets.length) {
+      if (!bullets || !bullets.length) {
         console.warn(`[summary] room=${id} empty bullets — will retry later`);
         const r = getRoom(id);
-        if (r) r.summary.linesSinceLastSummary = Math.max(0, SUMMARY_EVERY_N_LINES - 1);
+        if (r) r.summary.linesSinceLastSummary = Math.max(0, cadence - 1);
         return;
       }
       const summary = setSummary(id, bullets);
@@ -263,7 +267,7 @@ function maybeRefreshSummary(io, roomId) {
       if (r) {
         r.summary.linesSinceLastSummary = Math.max(
           r.summary.linesSinceLastSummary,
-          SUMMARY_EVERY_N_LINES
+          cadence
         );
       }
       io.to(id).emit("pipeline:error", {
@@ -273,6 +277,10 @@ function maybeRefreshSummary(io, roomId) {
     })
     .finally(() => {
       summaryInFlight.delete(id);
+      const r = getRoom(id);
+      if (r && r.summary.linesSinceLastSummary >= cadence) {
+        setTimeout(() => maybeRefreshSummary(io, id), 1200);
+      }
     });
 }
 
@@ -325,6 +333,23 @@ app.get("/api/email/status", (_req, res) => {
   res.json(emailStatus());
 });
 
+app.post("/api/rooms/:roomId/summary-refresh", async (req, res) => {
+  try {
+    const roomId = normalizeRoomId(req.params.roomId);
+    const room = getRoom(roomId);
+    if (!room) return res.status(404).json({ error: "Room not found" });
+    if (!room.transcript.length) {
+      return res.json(room.summary);
+    }
+    const bullets = await summarizeMeeting(room.transcript.slice());
+    const summary = setSummary(roomId, bullets);
+    io.to(roomId).emit("summary:update", summary);
+    res.json(summary);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/rooms/:roomId/email-summary", async (req, res) => {
   try {
     const roomId = normalizeRoomId(req.params.roomId);
@@ -338,6 +363,15 @@ app.post("/api/rooms/:roomId/email-summary", async (req, res) => {
     const room = getRoom(roomId);
     if (!room) {
       return res.status(404).json({ error: "Room not found. Join the meeting first so notes can be captured." });
+    }
+
+    if ((!room.summary.bullets || room.summary.bullets.length === 0) && room.transcript.length > 0) {
+      try {
+        const bullets = await summarizeMeeting(room.transcript.slice());
+        setSummary(roomId, bullets);
+      } catch (e) {
+        console.warn(`[email-summary] automatic summary refresh failed: ${e.message}`);
+      }
     }
 
     const speakerPoints = Object.fromEntries(
@@ -409,6 +443,9 @@ io.on("connection", (socket) => {
     });
 
     socket.emit("dashboard:snapshot", dashboardSnapshot(id));
+    if (room.transcript.length > 0 && (!room.summary.bullets || room.summary.bullets.length === 0)) {
+      maybeRefreshSummary(io, id, true);
+    }
 
     const chatHistory = getChatHistory(id);
     if (chatHistory.length > 0) {
@@ -519,6 +556,14 @@ io.on("connection", (socket) => {
       targetSocket.emit("room:kicked", { reason: "You were removed from the meeting by the host." });
       leaveCurrentRoom(io, targetSocket, currentRoom);
     }
+  });
+
+  // ---- Summary manual refresh request ----
+
+  socket.on("summary:refresh", ({ roomId } = {}) => {
+    const id = normalizeRoomId(roomId || currentRoom);
+    if (!id) return;
+    maybeRefreshSummary(io, id, true);
   });
 
   // ---- Audio pipeline: speech:start -> audio:chunk -> speech:end ----

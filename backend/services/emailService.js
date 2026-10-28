@@ -40,8 +40,16 @@ function escapeHtml(str = "") {
 }
 
 function buildEmailHtml({ roomId, summary, speakerPoints, transcript, sentBy }) {
-  const bullets = summary?.bullets?.length
-    ? summary.bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join("")
+  const bulletList = Array.isArray(summary)
+    ? summary
+    : Array.isArray(summary?.bullets)
+    ? summary.bullets
+    : summary?.bullets
+    ? [String(summary.bullets)]
+    : [];
+
+  const bullets = bulletList.length
+    ? bulletList.map((b) => `<li>${escapeHtml(b)}</li>`).join("")
     : "<li><em>No summary bullets yet — the meeting may still be in progress.</em></li>";
 
   const speakers = Object.entries(speakerPoints || {})

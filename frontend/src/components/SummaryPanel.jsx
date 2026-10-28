@@ -6,14 +6,26 @@ function formatTime(ts) {
 }
 
 export default function SummaryPanel({ summary }) {
-  const bullets = summary?.bullets || [];
+  const rawBullets = Array.isArray(summary)
+    ? summary
+    : Array.isArray(summary?.bullets)
+    ? summary.bullets
+    : summary?.bullets
+    ? [String(summary.bullets)]
+    : [];
+
+  const bullets = rawBullets
+    .map((b) => (typeof b === "string" ? b.trim() : ""))
+    .filter(Boolean);
+
+  const updatedAt = summary?.updatedAt || (typeof summary === "object" ? summary?.ts : null);
 
   return (
     <div className="panel-section">
       <div className="panel-label">
         <span className="panel-label-text">Rolling Meeting Summary</span>
-        {summary?.updatedAt && (
-          <span className="summary-updated mono">updated {formatTime(summary.updatedAt)}</span>
+        {updatedAt && (
+          <span className="summary-updated mono">updated {formatTime(updatedAt)}</span>
         )}
       </div>
       {bullets.length === 0 ? (

@@ -7,8 +7,27 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage } from "@langchain/core/messages";
 import ffmpegStatic from "ffmpeg-static";
 
-const GEMINI_API_KEY_VOICE = process.env.GEMINI_API_KEY_VOICE;
-const GEMINI_VOICE_MODEL = process.env.GEMINI_VOICE_MODEL || "gemini-3.1-flash-lite";
+function getVoiceApiKey() {
+  const key =
+    process.env.GEMINI_API_KEY_VOICE ||
+    process.env.GEMINI_API_KEY_TEXT ||
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    "";
+  return String(key).trim().replace(/^["']|["']$/g, "");
+}
+
+function getVoiceModels() {
+  const primary = (process.env.GEMINI_VOICE_MODEL || "").trim();
+  const models = [
+    primary,
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+  ].filter(Boolean);
+  return [...new Set(models)];
+}
 
 export function getFfmpegBin() {
   return process.env.FFMPEG_PATH || ffmpegStatic || "ffmpeg";
@@ -184,7 +203,8 @@ async function invokeWithTimeout(model, messages, ms) {
 }
 
 async function transcribeOnce(audioBuffer, mimeType = "audio/webm") {
-  if (!GEMINI_API_KEY_VOICE) throw new Error("GEMINI_API_KEY_VOICE is not set");
+  const apiKey = getVoiceApiKey();
+  if (!apiKey) throw new Error("GEMINI_API_KEY_VOICE is not set");
 
   if (!audioBuffer || audioBuffer.length < MIN_AUDIO_BYTES) {
     return "";
@@ -218,12 +238,6 @@ async function transcribeOnce(audioBuffer, mimeType = "audio/webm") {
     return "";
   }
 
-  const model = new ChatGoogleGenerativeAI({
-    model: GEMINI_VOICE_MODEL,
-    apiKey: GEMINI_API_KEY_VOICE,
-    temperature: 0,
-  });
-
   const message = new HumanMessage({
     content: [
       {
@@ -247,23 +261,37 @@ Rules:
     ],
   });
 
-  try {
-    const response = await invokeWithTimeout(model, [message], STT_TIMEOUT_MS);
-    let text = (response.content || "").trim();
+  const models = getVoiceModels();
+  let lastErr = null;
 
-    if (/^NO_SPEECH$/i.test(text)) return "";
-    text = text.replace(/^(transcript\s*:|transcription\s*:)\s*/i, "").trim();
+  for (const modelName of models) {
+    try {
+      const model = new ChatGoogleGenerativeAI({
+        model: modelName,
+        apiKey: apiKey,
+        temperature: 0,
+        maxRetries: 1,
+      });
 
-    if (isNoiseTranscript(text)) return "";
-    return text;
-  } catch (err) {
-    // Bad/short clips must not surface as pipeline errors in the UI.
-    if (isInvalidArgumentError(err)) {
-      console.warn(`[stt] gemini rejected audio (treated as empty): ${err.message}`);
-      return "";
+      const response = await invokeWithTimeout(model, [message], STT_TIMEOUT_MS);
+      let text = (response.content || "").trim();
+
+      if (/^NO_SPEECH$/i.test(text)) return "";
+      text = text.replace(/^(transcript\s*:|transcription\s*:)\s*/i, "").trim();
+
+      if (isNoiseTranscript(text)) return "";
+      return text;
+    } catch (err) {
+      if (isInvalidArgumentError(err)) {
+        console.warn(`[stt] gemini rejected audio (treated as empty): ${err.message}`);
+        return "";
+      }
+      console.warn(`[stt] voice model "${modelName}" failed: ${err.message}`);
+      lastErr = err;
     }
-    throw err;
   }
+
+  throw lastErr || new Error("All Gemini voice models failed");
 }
 
 export async function transcribeAudio(audioBuffer, mimeType = "audio/webm") {
